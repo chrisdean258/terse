@@ -1,0 +1,1 @@
+stdin.lines |> split("") |> map(int) |> reduce(+) |> sort |> last(3) |> sum |> print
