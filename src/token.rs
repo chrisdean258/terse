@@ -1,4 +1,4 @@
-use crate::textlocator::Span;
+use crate::span::Span;
 
 #[derive(Debug, Clone)]
 pub struct Token {
@@ -6,8 +6,16 @@ pub struct Token {
     pub value: TokenKind,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum TokenKind {
-    Number(i64),
+    Integer(i64),
+    Float(f64),
     String(String),
+    SingleEquals,
+    DoubleEquals,
+    FatArrow,
+    LessThan,
+    LessThanOrEqual,
+    BitShiftLeft,
+    BitShiftLeftEquals,
 }

@@ -1,10 +1,10 @@
 mod lexer;
-mod textlocator;
+mod span;
 mod token;
 
 fn main() {
-    let test = "\"this is as\" 1 \"ssfsd\"\"lsdkfjsd";
-    let l = lexer::Lexer::new(test.chars());
+    let test = "11";
+    let l = lexer::Lexer::new("test".to_owned(), test.chars());
     for token in l {
         println!("{token:?}");
     }
