@@ -34,6 +34,12 @@ impl Display for Span {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct LocatedCharacter {
+    pub value: char,
+    pub span: Span,
+}
+
 #[derive(Debug)]
 struct ControlBlock {
     label: String,
@@ -47,21 +53,21 @@ pub struct TextLocator<I: Iterator<Item = char>> {
 }
 
 impl<I: Iterator<Item = char>> Iterator for TextLocator<I> {
-    type Item = (char, Span);
+    type Item = LocatedCharacter;
 
     fn next(&mut self) -> Option<Self::Item> {
         let (idx, chr) = self.characters.next()?;
         if chr == '\n' {
             self.meta.newlines.borrow_mut().push(idx);
         }
-        Some((
-            chr,
-            Span {
+        Some(LocatedCharacter {
+            value: chr,
+            span: Span {
                 from: idx,
                 to: idx,
                 meta: self.meta.clone(),
             },
-        ))
+        })
     }
 }
 

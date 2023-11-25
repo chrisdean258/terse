@@ -1,11 +1,11 @@
 use crate::{
-    span::{Span, TextLocator},
+    span::{LocatedCharacter, Span, TextLocator},
     token::{Token, TokenKind},
 };
-use std::iter::Peekable;
+use std::mem::replace;
 use thiserror::Error;
 
-#[derive(Error, Debug)]
+#[derive(Error, Debug, Clone)]
 pub enum LexError {
     #[error("{1}: unexpecteded character `{0}`")]
     Char(char, Span),
@@ -14,39 +14,36 @@ pub enum LexError {
 }
 
 pub struct Lexer<I: Iterator<Item = char>> {
-    characters: Peekable<TextLocator<I>>,
+    characters: TextLocator<I>,
+    cache: Option<LocatedCharacter>,
 }
 
 impl<I: Iterator<Item = char>> Iterator for Lexer<I> {
     type Item = Result<Token, LexError>;
     fn next(&mut self) -> Option<Self::Item> {
         use TokenKind::*;
-        while self
-            .characters
-            .next_if(|(c, _)| c.is_whitespace())
-            .is_some()
-        {}
-        let (ch, loc) = self.characters.peek()?.clone();
+        while self.next_if(|c| c.is_whitespace()).is_some() {}
+        let lc = self.next_char()?;
 
         macro_rules! lex_tree {
             ($default:expr) => {
-                Some(Ok(self.tag($default)))
+                Some(Ok(Token { value: $default, span: lc.span}))
             };
             ($pat_paramtern:pat => $($rest:tt)*) => {
                 Some($pat_paramtern) => lex_tree!($($rest)*),
             };
             ($default:expr, {$($subpat_param:literal => $val:expr $(,{$($rest:tt)*})?),+ $(,)?}) => {{
-                let _ = self.characters.next();
-                match self.characters.peek().map(|(c, _l)| *c) {
+                let nc = self.next_char();
+                match nc.map(|c| c.value) {
                     $(Some($subpat_param) => lex_tree!($val $(,{$($rest)*})?),)+
                     _ => lex_tree!($default)
                 }
             }};
         }
-        match ch {
-            '0'..='9' => Some(self.num()),
-            '"' => Some(self.string()),
-            '_' | 'a'..='z' | 'A'..='Z' => Some(self.identifier_or_keyword()),
+        match lc.value {
+            '0'..='9' => Some(self.num(lc)),
+            '"' => Some(self.string(lc)),
+            '_' | 'a'..='z' | 'A'..='Z' => Some(self.identifier_or_keyword(lc)),
             '=' => lex_tree!(SingleEquals, {
                 '=' => DoubleEquals,
                 '>' => FatArrow,
@@ -88,6 +85,10 @@ impl<I: Iterator<Item = char>> Iterator for Lexer<I> {
             '!' => lex_tree!(BangSign, {
                 '=' => NotEqual,
             }),
+            '~' => lex_tree!(Tilde, {
+                '=' => TildeEquals,
+                '>' => SquigglyArrow,
+            }),
             '&' => lex_tree!(Ampersand, {
                 '&' => DoubleAmpersand, {
                     '=' => DoubleAmpersandEquals,
@@ -116,48 +117,57 @@ impl<I: Iterator<Item = char>> Iterator for Lexer<I> {
             '{' => lex_tree!(OpenBrace),
             '}' => lex_tree!(CloseBrace),
             '$' => lex_tree!(DollarSign),
-            _ => Some(Err(LexError::Char(ch, loc.clone()))),
+            _ => Some(Err(LexError::Char(lc.value, lc.span))),
         }
     }
 }
 
 impl<I: Iterator<Item = char>> Lexer<I> {
     pub fn new(label: String, characters: I) -> Self {
-        Self {
-            characters: TextLocator::new(label, characters).peekable(),
+        let mut characters = TextLocator::new(label, characters);
+        let cache = characters.next();
+        Self { characters, cache }
+    }
+
+    fn next_char(&mut self) -> Option<LocatedCharacter> {
+        replace(&mut self.cache, self.characters.next())
+    }
+
+    fn next_if<C>(&mut self, mut cond: C) -> Option<LocatedCharacter>
+    where
+        C: FnMut(char) -> bool,
+    {
+        if let Some(lc) = &self.cache {
+            if cond(lc.value) {
+                self.next_char()
+            } else {
+                None
+            }
+        } else {
+            None
         }
     }
 
-    fn collect_while<T>(&mut self, mut cond: T) -> Option<(String, Span)>
+    fn collect_while<T>(&mut self, mut cond: T, output: &mut String) -> Option<LocatedCharacter>
     where
         T: FnMut(char) -> bool,
     {
-        let mut output: String = String::new();
-        let mut final_loc = None;
-        let (first_char, start) = self.characters.next_if(|(c, _l)| cond(*c))?;
-        output.push(first_char);
-        while let Some((c, loc)) = self.characters.next_if(|(c, _l)| cond(*c)) {
-            final_loc = Some(loc);
-            output.push(c);
+        let mut final_char = None;
+        while let Some(lc) = self.next_if(&mut cond) {
+            output.push(lc.value);
+            final_char = Some(lc);
         }
-        return Some((output, start.to(final_loc.as_ref().unwrap_or(&start))));
+        final_char
     }
 
-    fn tag(&mut self, untagged: TokenKind) -> Token {
-        let Some((_ch, loc)) = self.characters.next() else {
-            unreachable!("Tried consuming and tagging on empty stream of characters");
-        };
-        Token {
-            span: loc,
-            value: untagged,
-        }
-    }
-
-    fn num(&mut self) -> Result<Token, LexError> {
-        let Some((nums, span)) = self.collect_while(|c| c.is_numeric()) else {
-            unreachable!("Called lexer.num() without a numeral next in the lexer")
-        };
-        let Some(('.', loc)) = self.characters.next_if(|(c, _l)| *c == '.') else {
+    fn num(&mut self, lc: LocatedCharacter) -> Result<Token, LexError> {
+        let mut nums = String::new();
+        nums.push(lc.value);
+        let final_char = self
+            .collect_while(|c| c.is_numeric(), &mut nums)
+            .unwrap_or_else(|| lc.clone());
+        let span = lc.span.to(&final_char.span);
+        let Some(dotlc) = self.next_if(|c| c == '.') else {
             return Ok(Token {
                 span,
                 value: TokenKind::Integer(
@@ -166,24 +176,18 @@ impl<I: Iterator<Item = char>> Lexer<I> {
                 ),
             });
         };
-        if let Some((nums2, span2)) = self.collect_while(|c| c.is_numeric()) {
-            Ok(Token {
-                span: span.to(&span2),
-                value: TokenKind::Float(
-                    format!("{nums}.{nums2}")
-                        .parse()
-                        .expect("numerical string failed to parse as int"),
-                ),
-            })
-        } else {
-            Ok(Token {
-                span: span.to(&loc),
-                value: TokenKind::Float(
-                    nums.parse()
-                        .expect("numerical string failed to parse as int"),
-                ),
-            })
-        }
+        nums.push('.');
+        let end = self
+            .collect_while(|c| c.is_numeric(), &mut nums)
+            .unwrap_or(dotlc)
+            .span;
+        Ok(Token {
+            span: span.to(&end),
+            value: TokenKind::Float(
+                nums.parse()
+                    .expect("numerical string failed to parse as int"),
+            ),
+        })
     }
 
     fn escape(string: &str) -> String {
@@ -211,41 +215,41 @@ impl<I: Iterator<Item = char>> Lexer<I> {
         output
     }
 
-    fn identifier_or_keyword(&mut self) -> Result<Token, LexError> {
-        let mut idx = 0;
-        let Some((id, span)) = self.collect_while(|c| {
-            idx += 1;
-            c == '_' || c.is_alphabetic() || (idx > 1 && c.is_numeric())
-        }) else {
-            unreachable!("Called lexer.identifier_or_keyword() without a valid identifier start next in the lexer")
-        };
-
-        Ok(Token {
-            span,
-            value: TokenKind::Identifier(id),
-        })
-    }
-
-    fn string(&mut self) -> Result<Token, LexError> {
-        let Some(('"', loc)) = self.characters.next_if(|(c, _l)| *c == '"') else {
-            unreachable!("Called lexer.string() without a \" next in the lexer")
-        };
+    fn string(&mut self, lc: LocatedCharacter) -> Result<Token, LexError> {
+        let mut chars = String::new();
         let mut prev_slash = false;
-        let Some((chars, _)) = self.collect_while(|c| {
-            let rtn = c != '"' || prev_slash;
-            prev_slash = c == '\\';
-            rtn
-        }) else {
-            return Err(LexError::EOFString(loc));
+        let Some(_lc) = self.collect_while(
+            |c| {
+                let rtn = c != '"' || prev_slash;
+                prev_slash = c == '\\';
+                rtn
+            },
+            &mut chars,
+        ) else {
+            return Err(LexError::EOFString(lc.span));
         };
-        if let Some(('"', loc2)) = self.characters.next_if(|(c, _l)| *c == '"') {
+        if let Some(end_quote_lc) = self.next_if(|c| c == '"') {
             Ok(Token {
-                span: loc.to(&loc2),
+                span: lc.span.to(&end_quote_lc.span),
                 value: TokenKind::String(Self::escape(&chars)),
             })
         } else {
-            Err(LexError::EOFString(loc))
+            Err(LexError::EOFString(lc.span))
         }
+    }
+
+    fn identifier_or_keyword(&mut self, lc: LocatedCharacter) -> Result<Token, LexError> {
+        let mut id = String::new();
+        id.push(lc.value);
+        let end = self
+            .collect_while(|c| c == '_' || c.is_alphabetic() || c.is_numeric(), &mut id)
+            .unwrap_or_else(|| lc.clone())
+            .span;
+
+        Ok(Token {
+            span: lc.span.to(&end),
+            value: TokenKind::Identifier(id),
+        })
     }
 }
 
