@@ -35,7 +35,7 @@ impl<I: Iterator<Item = char>> Iterator for Lexer<I> {
             ($pat_paramtern:pat => $($rest:tt)*) => {
                 Some($pat_paramtern) => lex_tree!($($rest)*),
             };
-            ($default:expr, {$($subpat_param:literal => $val:expr $(,{$($rest:tt)*})?),+}) => {{
+            ($default:expr, {$($subpat_param:literal => $val:expr $(,{$($rest:tt)*})?),+ $(,)?}) => {{
                 let _ = self.characters.next();
                 match self.characters.peek().map(|(c, _l)| *c) {
                     $(Some($subpat_param) => lex_tree!($val $(,{$($rest)*})?),)+
@@ -43,20 +43,79 @@ impl<I: Iterator<Item = char>> Iterator for Lexer<I> {
                 }
             }};
         }
-        let _qqqq = 0;
         match ch {
             '0'..='9' => Some(self.num()),
             '"' => Some(self.string()),
+            '_' | 'a'..='z' | 'A'..='Z' => Some(self.identifier_or_keyword()),
             '=' => lex_tree!(SingleEquals, {
                 '=' => DoubleEquals,
-                '>' => FatArrow
+                '>' => FatArrow,
             }),
             '<' => lex_tree!(LessThan, {
-                '=' => DoubleEquals,
-                '<' => LessThanOrEqual, {
-                    '=' => BitShiftLeftEquals
+                '=' => LessThanOrEqual,
+                '<' => BitShiftLeft, {
+                    '=' => BitShiftLeftEquals,
                 }
             }),
+            '>' => lex_tree!(GreaterThan, {
+                '=' => GreaterThanOrEqual,
+                '>' => BitShiftRight, {
+                    '=' => BitShiftRightEquals,
+                }
+            }),
+            '+' => lex_tree!(Plus, {
+                '+' => Increment,
+                '=' => PlusEquals,
+                '>' => CrossArrow,
+            }),
+            '-' => lex_tree!(Minus, {
+                '-' => Decrement,
+                '=' => MinusEquals,
+                '>' => SkinnyArrow,
+            }),
+            '*' => lex_tree!(Asterik, {
+                '=' => TimesEquals,
+            }),
+            '/' => lex_tree!(ForwardSlash, {
+                '/' => DoubleForwardSlash, {
+                    '=' => DoubleForwardSlashEquals,
+                },
+                '=' => ForwardSlashEquals,
+            }),
+            '%' => lex_tree!(Mod, {
+                '=' => ModEquals
+            }),
+            '!' => lex_tree!(BangSign, {
+                '=' => NotEqual,
+            }),
+            '&' => lex_tree!(Ampersand, {
+                '&' => DoubleAmpersand, {
+                    '=' => DoubleAmpersandEquals,
+                },
+                '=' => AmpersandEquals,
+            }),
+            '|' => lex_tree!(Pipe, {
+                '|' => DoublePipe, {
+                    '=' => DoublePipeEquals,
+                },
+                '=' => PipeEquals,
+                '>' => PipeArrow,
+            }),
+            '^' => lex_tree!(Hat, {
+                '^' => DoubleHat, {
+                    '=' => DoubleHatEquals,
+                },
+                '=' => HatEquals,
+            }),
+            ',' => lex_tree!(Comma),
+            '.' => lex_tree!(Dot),
+            '(' => lex_tree!(OpenParen),
+            ')' => lex_tree!(CloseParen),
+            '[' => lex_tree!(OpenBracket),
+            ']' => lex_tree!(CloseBracket),
+            '{' => lex_tree!(OpenBrace),
+            '}' => lex_tree!(CloseBrace),
+            '$' => lex_tree!(DollarSign),
             _ => Some(Err(LexError::Char(ch, loc.clone()))),
         }
     }
@@ -152,6 +211,21 @@ impl<I: Iterator<Item = char>> Lexer<I> {
         output
     }
 
+    fn identifier_or_keyword(&mut self) -> Result<Token, LexError> {
+        let mut idx = 0;
+        let Some((id, span)) = self.collect_while(|c| {
+            idx += 1;
+            c == '_' || c.is_alphabetic() || (idx > 1 && c.is_numeric())
+        }) else {
+            unreachable!("Called lexer.identifier_or_keyword() without a valid identifier start next in the lexer")
+        };
+
+        Ok(Token {
+            span,
+            value: TokenKind::Identifier(id),
+        })
+    }
+
     fn string(&mut self) -> Result<Token, LexError> {
         let Some(('"', loc)) = self.characters.next_if(|(c, _l)| *c == '"') else {
             unreachable!("Called lexer.string() without a \" next in the lexer")
@@ -200,6 +274,54 @@ mod tests {
         test_lex!(l => TokenKind::Float(_));
         test_lex!(l => TokenKind::Integer(1));
         assert!(l.next().is_none())
+    }
+
+    #[test]
+    fn operators() {
+        let operators = vec![
+            TokenKind::SingleEquals,
+            TokenKind::DoubleEquals,
+            TokenKind::FatArrow,
+            TokenKind::LessThan,
+            TokenKind::LessThanOrEqual,
+            TokenKind::BitShiftLeft,
+            TokenKind::BitShiftLeftEquals,
+            TokenKind::GreaterThan,
+            TokenKind::GreaterThanOrEqual,
+            TokenKind::BitShiftRight,
+            TokenKind::BitShiftRightEquals,
+            TokenKind::Plus,
+            TokenKind::Increment,
+            TokenKind::PlusEquals,
+            TokenKind::CrossArrow,
+            TokenKind::Minus,
+            TokenKind::Decrement,
+            TokenKind::MinusEquals,
+            TokenKind::SkinnyArrow,
+            TokenKind::Asterik,
+            TokenKind::TimesEquals,
+            TokenKind::ForwardSlash,
+            TokenKind::DoubleForwardSlash,
+            TokenKind::ForwardSlashEquals,
+            TokenKind::DoubleForwardSlashEquals,
+            TokenKind::Mod,
+            TokenKind::ModEquals,
+            TokenKind::BangSign,
+            TokenKind::NotEqual,
+            TokenKind::Ampersand,
+            TokenKind::AmpersandEquals,
+            TokenKind::DoubleAmpersand,
+            TokenKind::DoubleAmpersandEquals,
+        ];
+
+        let ops: Vec<String> = operators.iter().map(|o| o.to_string()).collect();
+        let ops = ops.join(" ");
+
+        let l = Lexer::new("operators".to_owned(), ops.chars());
+
+        for (kind, res_token) in operators.iter().zip(l) {
+            assert_eq!(res_token.unwrap().value, *kind);
+        }
     }
 
     #[test]
