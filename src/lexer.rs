@@ -122,6 +122,31 @@ impl<I: Iterator<Item = char>> Iterator for Lexer<I> {
     }
 }
 
+fn escape(string: &str) -> String {
+    let mut output = String::with_capacity(string.len());
+    let mut prev_slash = false;
+    for c in string.chars() {
+        if c == '\\' {
+            prev_slash = true;
+            continue;
+        }
+        let next = if prev_slash {
+            match c {
+                'n' => '\n',
+                't' => '\t',
+                'r' => '\r',
+                '0' => '\0',
+                c => c,
+            }
+        } else {
+            c
+        };
+        prev_slash = false;
+        output.push(next);
+    }
+    output
+}
+
 impl<I: Iterator<Item = char>> Lexer<I> {
     pub fn new(label: String, characters: I) -> Self {
         let mut characters = TextLocator::new(label, characters);
@@ -190,31 +215,6 @@ impl<I: Iterator<Item = char>> Lexer<I> {
         })
     }
 
-    fn escape(string: &str) -> String {
-        let mut output = String::with_capacity(string.len());
-        let mut prev_slash = false;
-        for c in string.chars() {
-            if c == '\\' {
-                prev_slash = true;
-                continue;
-            }
-            let next = if prev_slash {
-                match c {
-                    'n' => '\n',
-                    't' => '\t',
-                    'r' => '\r',
-                    '0' => '\0',
-                    c => c,
-                }
-            } else {
-                c
-            };
-            prev_slash = false;
-            output.push(next);
-        }
-        output
-    }
-
     fn string(&mut self, lc: LocatedCharacter) -> Result<Token, LexError> {
         let mut chars = String::new();
         let mut prev_slash = false;
@@ -231,7 +231,7 @@ impl<I: Iterator<Item = char>> Lexer<I> {
         if let Some(end_quote_lc) = self.next_if(|c| c == '"') {
             Ok(Token {
                 span: lc.span.to(&end_quote_lc.span),
-                value: TokenKind::String(Self::escape(&chars)),
+                value: TokenKind::String(escape(&chars)),
             })
         } else {
             Err(LexError::EOFString(lc.span))
@@ -350,6 +350,14 @@ mod tests {
         };
 
         assert_eq!(s, 1.2);
+    }
+
+    #[test]
+    fn escape() {
+        let test = "\\n\\t\\r\\0";
+        let output = super::escape(test);
+
+        assert_eq!(output, "\n\t\r\0");
     }
 
     #[test]
