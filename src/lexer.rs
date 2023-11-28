@@ -117,6 +117,22 @@ impl<I: Iterator<Item = char>> Iterator for Lexer<I> {
             '{' => lex_tree!(OpenBrace),
             '}' => lex_tree!(CloseBrace),
             '$' => lex_tree!(DollarSign),
+            '\\' => {
+                if let Some(nc) = self.next_if(|c| c.is_numeric()) {
+                    let mut num = String::new();
+                    num.push(nc.value);
+                    let end = self
+                        .collect_while(|c| c.is_numeric(), &mut num)
+                        .unwrap_or(nc.clone());
+                    let num = num.parse().expect("Parsing on only numeric characters");
+                    Some(Ok(Token {
+                        span: nc.span.to(&end.span),
+                        value: LambdaArg(num),
+                    }))
+                } else {
+                    lex_tree!(BackSlash)
+                }
+            }
             _ => Some(Err(LexError::Char(lc.value, lc.span))),
         }
     }
@@ -162,12 +178,9 @@ impl<I: Iterator<Item = char>> Lexer<I> {
     where
         C: FnMut(char) -> bool,
     {
-        if let Some(lc) = &self.cache {
-            if cond(lc.value) {
-                self.next_char()
-            } else {
-                None
-            }
+        let lc = self.cache.as_ref()?;
+        if cond(lc.value) {
+            self.next_char()
         } else {
             None
         }
@@ -231,7 +244,7 @@ impl<I: Iterator<Item = char>> Lexer<I> {
         if let Some(end_quote_lc) = self.next_if(|c| c == '"') {
             Ok(Token {
                 span: lc.span.to(&end_quote_lc.span),
-                value: TokenKind::String(escape(&chars)),
+                value: TokenKind::Str(escape(&chars)),
             })
         } else {
             Err(LexError::EOFString(lc.span))
@@ -268,10 +281,10 @@ mod tests {
             };
         }
 
-        test_lex!(l => TokenKind::String(_));
+        test_lex!(l => TokenKind::Str(_));
         test_lex!(l => TokenKind::Integer(1));
-        test_lex!(l => TokenKind::String(_));
-        test_lex!(l => TokenKind::String(_));
+        test_lex!(l => TokenKind::Str(_));
+        test_lex!(l => TokenKind::Str(_));
         test_lex!(l => TokenKind::Integer(1));
         test_lex!(l => TokenKind::Integer(12));
         test_lex!(l => TokenKind::Float(_));
@@ -333,7 +346,7 @@ mod tests {
         let test = "\"test\\n\"";
         let mut l = Lexer::new("test".to_owned(), test.chars());
 
-        let TokenKind::String(s) = l.next().unwrap().unwrap().value else {
+        let TokenKind::Str(s) = l.next().unwrap().unwrap().value else {
             panic!("Lexer did not yield String token");
         };
 

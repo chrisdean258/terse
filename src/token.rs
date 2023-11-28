@@ -11,8 +11,9 @@ pub struct Token {
 pub enum TokenKind {
     Integer(i64),
     Float(f64),
-    String(String),
+    Str(String),
     Identifier(String),
+    LambdaArg(usize),
     SingleEquals,
     DoubleEquals,
     FatArrow,
@@ -67,6 +68,7 @@ pub enum TokenKind {
     OpenBrace,
     CloseBrace,
     DollarSign,
+    BackSlash,
 }
 
 impl Display for TokenKind {
@@ -74,8 +76,9 @@ impl Display for TokenKind {
         match self {
             Self::Integer(i) => write!(f, "{i}"),
             Self::Float(fl) => write!(f, "{fl}"),
-            Self::String(s) => write!(f, "{s:?}"),
+            Self::Str(s) => write!(f, "{s:?}"),
             Self::Identifier(s) => write!(f, "{s}"),
+            Self::LambdaArg(i) => write!(f, "\\{i}"),
             Self::SingleEquals => write!(f, "="),
             Self::DoubleEquals => write!(f, "=="),
             Self::FatArrow => write!(f, "=>"),
@@ -130,6 +133,7 @@ impl Display for TokenKind {
             Self::OpenBrace => write!(f, "{{"),
             Self::CloseBrace => write!(f, "}}"),
             Self::DollarSign => write!(f, "$"),
+            Self::BackSlash => write!(f, "\\"),
         }
     }
 }
