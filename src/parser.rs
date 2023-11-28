@@ -41,10 +41,7 @@ type ParseResult = Result<UntypedExpression, ParseError>;
 
 macro_rules! binops {
     ($name:ident) => {};
-    ($name:ident { $($tok:pat_param => $result:expr),+ $(,)? };) => {
-            binops!($name { $($tok => $result),+ }; literal);
-    };
-    ($name:ident { $($tok:pat_param => $result:expr),+ $(,)? }; $next:ident $($rest:tt)*) => {
+    ($name:ident { $($tok:pat_param => $result:expr),+ $(,)? } => $next:ident $($rest:tt)*) => {
         fn $name(&mut self, token: Token) -> ParseResult {
             let left = self.$next(token)?;
             let Some(sep) = self.lexer.next() else {
@@ -99,11 +96,11 @@ where
             TokenKind::DoublePipe => BinOpKind::BoolOr,
             TokenKind::DoubleAmpersand => BinOpKind::BoolAnd,
             TokenKind::DoubleHat => BinOpKind::BoolXor,
-        };
+        } =>
 
-        bitwise_or { TokenKind::Pipe => BinOpKind::BitwiseOr };
-        bitwise_xor { TokenKind::Hat => BinOpKind::BitwiseXor };
-        bitwise_and { TokenKind::Ampersand => BinOpKind::BitwiseAnd };
+        bitwise_or { TokenKind::Pipe => BinOpKind::BitwiseOr } =>
+        bitwise_xor { TokenKind::Hat => BinOpKind::BitwiseXor } =>
+        bitwise_and { TokenKind::Ampersand => BinOpKind::BitwiseAnd } =>
 
         comparision {
             TokenKind::GreaterThanOrEqual => BinOpKind::GreaterThanOrEqual,
@@ -112,24 +109,24 @@ where
             TokenKind::LessThan => BinOpKind::LessThan,
             TokenKind::DoubleEquals => BinOpKind::CmpEquals,
             TokenKind::NotEqual => BinOpKind::CmpNotEquals,
-        };
+        } =>
 
         bitshift {
             TokenKind::BitShiftLeft => BinOpKind::BitShiftLeft,
             TokenKind::BitShiftRight => BinOpKind::BitShiftRight,
-        };
+        } =>
 
         additive {
             TokenKind::Minus => BinOpKind::Subtract,
             TokenKind::Plus => BinOpKind::Add,
-        };
+        } =>
 
         multiplicative {
             TokenKind::Asterik => BinOpKind::Multiply,
             TokenKind::ForwardSlash => BinOpKind::Divide,
             TokenKind::DoubleForwardSlash => BinOpKind::IntegerDivide,
             TokenKind::Mod => BinOpKind::Mod,
-        };
+        } => literal
     );
 
     fn literal(&mut self, token: Token) -> ParseResult {
