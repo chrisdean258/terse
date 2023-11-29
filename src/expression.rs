@@ -20,8 +20,8 @@ pub enum UntypedExpressionKind {
         right: SubExpr,
     },
     FlatBinOp {
-        bulk: Vec<(SubExpr, BinOpKind)>,
-        last: SubExpr,
+        first: SubExpr,
+        rest: Vec<(BinOpKind, SubExpr)>,
     },
     ParenExpr(SubExpr),
 }
@@ -95,13 +95,13 @@ impl Display for UntypedExpressionKind {
             Self::Str(s) => write!(f, "{s:?}"),
             Self::BinOp { left, op, right } => write!(f, "({left} {op} {right})"),
             Self::ParenExpr(e) => write!(f, "({e})"),
-            Self::FlatBinOp { bulk, last } => {
-                write!(f, "(")?;
-                for (expr, op) in bulk.iter() {
+            Self::FlatBinOp { first, rest } => {
+                write!(f, "({first}")?;
+                for (op, expr) in rest.iter() {
                     let spc = if *op == BinOpKind::MakeTuple { "" } else { " " };
-                    write!(f, "{expr}{spc}{op} ")?;
+                    write!(f, "{spc}{op} {expr}")?;
                 }
-                write!(f, "{last})")
+                Ok(())
             }
         }
     }

@@ -21,7 +21,7 @@ pub enum ParseError {
 }
 
 #[derive(Clone, Debug)]
-pub struct ParseTree {
+pub struct Ast {
     pub exprs: Vec<UntypedExpression>,
 }
 
@@ -29,10 +29,8 @@ struct Parser<I: Iterator<Item = Result<Token, LexError>>> {
     lexer: PutBack<I>,
 }
 
-pub fn parse(
-    lexer: impl Iterator<Item = Result<Token, LexError>>,
-) -> Result<ParseTree, ParseError> {
-    let mut tree = ParseTree { exprs: Vec::new() };
+pub fn parse(lexer: impl Iterator<Item = Result<Token, LexError>>) -> Result<Ast, ParseError> {
+    let mut tree = Ast { exprs: Vec::new() };
     let mut parser = Parser {
         lexer: put_back(lexer),
     };
@@ -79,11 +77,10 @@ macro_rules! binops {
         binops!($next $($rest)*);
     };
     ($name:ident #flatten { $($tok:pat_param => $result:expr),+ $(,)? } => $next:ident $($rest:tt)*) => {
-        fn $name(&mut self, mut token: Token) -> ParseResult {
-            let mut bulk = Vec::new();
-            let mut last_expr;
+        fn $name(&mut self, token: Token) -> ParseResult {
+            let first = self.$next(token)?;
+            let mut rest = Vec::new();
             loop {
-                last_expr = self.$next(token)?;
                 let Some(sep) = self.lexer.next() else {
                     break;
                 };
@@ -95,20 +92,20 @@ macro_rules! binops {
                         break;
                     }
                 };
-                bulk.push((Box::new(last_expr), op));
-                let Some(tok2) = self.lexer.next() else {
+                let Some(token) = self.lexer.next() else {
                     return Err(ParseError::UnexpectedEOF("expression"));
                 };
-                token = tok2?;
+                let expr = self.$next(token?)?;
+                rest.push((op, Box::new(expr)));
             }
-            Ok(if bulk.is_empty() {
-                last_expr
+            Ok(if rest.is_empty() {
+                first
             } else {
                 UntypedExpression {
-                    span : bulk[0].0.span.to(&last_expr.span),
+                    span : first.span.to(&rest.last().unwrap().1.span),
                     value: UntypedExpressionKind::FlatBinOp {
-                        bulk,
-                        last: Box::new(last_expr),
+                        first: Box::new(first),
+                        rest,
                     }
                 }
             })
