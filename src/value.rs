@@ -6,15 +6,17 @@ pub enum Value {
     Float(f64),
     Str(String),
     Tuple(Vec<Value>),
+    Bool(bool),
 }
 
 impl Display for Value {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
         match self {
             Self::None => write!(f, "none"),
+            Self::Bool(b) => write!(f, "{b}"),
             Self::Integer(i) => write!(f, "{i}"),
             Self::Float(fl) => write!(f, "{fl}"),
-            Self::Str(s) => write!(f, "{s}"),
+            Self::Str(s) => write!(f, "{s:?}"),
             Self::Tuple(tup) => {
                 let mut first = true;
                 for value in tup.iter() {

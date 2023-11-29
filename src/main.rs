@@ -7,12 +7,17 @@ mod span;
 mod token;
 mod value;
 
-fn main() -> Result<(), Box<dyn Error>> {
-    let test = "1 + 1, 123";
+fn main() {
+    match run() {
+        Ok(v) => println!("{v}"),
+        Err(e) => println!("{e}"),
+    }
+}
+
+fn run() -> Result<value::Value, Box<dyn Error>> {
+    let test = "true && \"test\"";
     let l = lexer::Lexer::new("test".to_owned(), test.chars());
     let t = parser::parse(l)?;
     let mut intp = interpretter::Interpretter::new();
-    let val = intp.interpret(&t)?;
-    println!("{val}");
-    Ok(())
+    Ok(intp.interpret(&t)?)
 }

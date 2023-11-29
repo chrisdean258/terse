@@ -1,5 +1,7 @@
 use crate::{
-    expression::{BinOpKind, UntypedExpression, UntypedExpressionKind},
+    expression::{
+        BinOpKind, FlatBinOpKind, ShortCircuitBinOpKind, UntypedExpression, UntypedExpressionKind,
+    },
     parser::Ast,
     span::Span,
     value::Value,
@@ -15,8 +17,18 @@ enum FlowControl {
 
 #[derive(Error, Debug, Clone)]
 pub enum InterpretterError {
-    #[error("Error in interpretter")]
-    Error(Span),
+    #[error("{0}: Cannot evaluate `{1} {2}`")]
+    ShortCircuitBinOpErrorOne(Span, Value, ShortCircuitBinOpKind),
+    #[error("{0}: Cannot evaluate `{1} {2} {3}`")]
+    ShortCircuitBinOpErrorTwo(Span, Value, ShortCircuitBinOpKind, Value),
+    #[error("{0}: Cannot evaluate `{1} {2} {3}`")]
+    FlatBinOpError(Span, Value, FlatBinOpKind, Value),
+    #[error("{0}: Cannot evaluate `{1} {2} {3}`")]
+    BinOpError(Span, Value, BinOpKind, Value),
+    #[error("{0}: Divide by zero")]
+    DivideBy0(Span),
+    #[error("{0}: Mod by zero")]
+    ModBy0(Span),
 }
 
 impl Interpretter {
@@ -37,12 +49,16 @@ impl Interpretter {
         match &expr.value {
             UntypedExpressionKind::Integer(i) => Ok(FlowControl::Value(Value::Integer(*i))),
             UntypedExpressionKind::Float(f) => Ok(FlowControl::Value(Value::Float(*f))),
+            UntypedExpressionKind::Bool(b) => Ok(FlowControl::Value(Value::Bool(*b))),
             UntypedExpressionKind::Str(s) => Ok(FlowControl::Value(Value::Str(s.clone()))),
             UntypedExpressionKind::BinOp { left, op, right } => {
                 self.binop(&expr.span, left, op, right)
             }
             UntypedExpressionKind::FlatBinOp { first, rest } => {
                 self.flat_binop(&expr.span, first, rest)
+            }
+            UntypedExpressionKind::ShortCircuitBinOp { left, op, right } => {
+                self.short_circuit_binop(&expr.span, left, op, right)
             }
             _ => todo!(),
         }
@@ -55,37 +71,97 @@ impl Interpretter {
         op: &BinOpKind,
         right: &UntypedExpression,
     ) -> Result<FlowControl, InterpretterError> {
+        use BinOpKind::*;
         let FlowControl::Value(left_val) = self.expr(left)?;
         let FlowControl::Value(right_val) = self.expr(right)?;
-        match (left_val, op, right_val) {
-            (Value::Integer(l), BinOpKind::Add, Value::Integer(r)) => {
-                Ok(FlowControl::Value(Value::Integer(l + r)))
+        let val = match (left_val, op, right_val) {
+            (Value::Integer(l), Add, Value::Integer(r)) => Value::Integer(l + r),
+            (Value::Integer(l), Subtract, Value::Integer(r)) => Value::Integer(l - r),
+            (Value::Integer(l), Multiply, Value::Integer(r)) => Value::Integer(l * r),
+            (Value::Integer(_), Mod, Value::Integer(0)) => {
+                return Err(InterpretterError::ModBy0(span.clone()))
             }
-            (_, BinOpKind::Add, _) => Err(InterpretterError::Error(span.clone())),
-            _ => todo!(),
-        }
+            (Value::Integer(l), Mod, Value::Integer(r)) => Value::Integer(l % r),
+            (Value::Integer(_), Divide, Value::Integer(0)) => {
+                return Err(InterpretterError::DivideBy0(span.clone()))
+            }
+            (Value::Integer(l), Divide, Value::Integer(r)) => Value::Float(l as f64 / r as f64),
+            (Value::Integer(_), IntegerDivide, Value::Integer(0)) => {
+                return Err(InterpretterError::DivideBy0(span.clone()))
+            }
+            (Value::Integer(l), IntegerDivide, Value::Integer(r)) => Value::Integer(l / r),
+
+            (Value::Float(l), Add, Value::Float(r)) => Value::Float(l + r),
+            (Value::Float(l), Multiply, Value::Float(r)) => Value::Float(l * r),
+            (Value::Float(l), Subtract, Value::Float(r)) => Value::Float(l - r),
+
+            (Value::Str(l), Add, Value::Str(r)) => Value::Str(l + &r),
+            (Value::Tuple(l), Add, Value::Tuple(r)) => {
+                let mut t = l.clone();
+                t.append(&mut r.clone());
+                Value::Tuple(t)
+            }
+            (l, op, r) => return Err(InterpretterError::BinOpError(span.clone(), l, *op, r)),
+        };
+        Ok(FlowControl::Value(val))
+    }
+
+    fn short_circuit_binop(
+        &mut self,
+        span: &Span,
+        left: &UntypedExpression,
+        op: &ShortCircuitBinOpKind,
+        right: &UntypedExpression,
+    ) -> Result<FlowControl, InterpretterError> {
+        use ShortCircuitBinOpKind::*;
+        let FlowControl::Value(left_val) = self.expr(left)?;
+        let val = match (&left_val, op) {
+            (Value::Bool(false), BoolAnd) => Value::Bool(false),
+            (Value::Bool(true), BoolOr) => Value::Bool(true),
+            (Value::Bool(true), BoolAnd) | (Value::Bool(false), BoolOr) => {
+                match self.expr(right)? {
+                    FlowControl::Value(Value::Bool(b)) => Value::Bool(b),
+                    FlowControl::Value(v) => {
+                        return Err(InterpretterError::ShortCircuitBinOpErrorTwo(
+                            span.clone(),
+                            left_val,
+                            *op,
+                            v,
+                        ))
+                    }
+                }
+            }
+            (_, op) => {
+                return Err(InterpretterError::ShortCircuitBinOpErrorOne(
+                    span.clone(),
+                    left_val,
+                    *op,
+                ))
+            }
+        };
+        Ok(FlowControl::Value(val))
     }
 
     fn flat_binop(
         &mut self,
         span: &Span,
         first: &UntypedExpression,
-        rest: &Vec<(BinOpKind, Box<UntypedExpression>)>,
+        rest: &[(FlatBinOpKind, Box<UntypedExpression>)],
     ) -> Result<FlowControl, InterpretterError> {
         let FlowControl::Value(mut result) = self.expr(first)?;
         for (op, expr) in rest.iter() {
             let FlowControl::Value(right_val) = self.expr(expr)?;
             result = match (result, op, right_val) {
-                (Value::Integer(l), BinOpKind::Add, Value::Integer(r)) => Value::Integer(l + r),
-                (Value::Tuple(mut v), BinOpKind::MakeTuple, r) => {
+                (Value::Tuple(mut v), FlatBinOpKind::MakeTuple, r) => {
                     v.push(r);
                     Value::Tuple(v)
                 }
-                (l, BinOpKind::MakeTuple, r) => Value::Tuple(vec![l, r]),
-                (_, BinOpKind::Add, _) => return Err(InterpretterError::Error(span.clone())),
-                _ => todo!(),
+                (l, FlatBinOpKind::MakeTuple, r) => Value::Tuple(vec![l, r]),
+                (l, op, r) => {
+                    return Err(InterpretterError::FlatBinOpError(span.clone(), l, *op, r))
+                }
             }
         }
-        return Ok(FlowControl::Value(result));
+        Ok(FlowControl::Value(result))
     }
 }

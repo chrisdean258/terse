@@ -13,6 +13,7 @@ pub enum TokenKind {
     Float(f64),
     Str(String),
     Identifier(String),
+    Bool(bool),
     LambdaArg(usize),
     SingleEquals,
     DoubleEquals,
@@ -76,6 +77,7 @@ impl Display for TokenKind {
         match self {
             Self::Integer(i) => write!(f, "{i}"),
             Self::Float(fl) => write!(f, "{fl}"),
+            Self::Bool(b) => write!(f, "{b}"),
             Self::Str(s) => write!(f, "{s:?}"),
             Self::Identifier(s) => write!(f, "{s}"),
             Self::LambdaArg(i) => write!(f, "\\{i}"),

@@ -1,5 +1,7 @@
 use crate::{
-    expression::{BinOpKind, UntypedExpression, UntypedExpressionKind},
+    expression::{
+        BinOpKind, FlatBinOpKind, ShortCircuitBinOpKind, UntypedExpression, UntypedExpressionKind,
+    },
     lexer::LexError,
     span::Span,
     token::{Token, TokenKind},
@@ -44,7 +46,7 @@ type ParseResult = Result<UntypedExpression, ParseError>;
 
 macro_rules! binops {
     ($name:ident) => {};
-    ($name:ident { $($tok:pat_param => $result:expr),+ $(,)? } => $next:ident $($rest:tt)*) => {
+    ($name:ident $return:ident { $($tok:pat_param => $result:expr),+ $(,)? } => $next:ident $($rest:tt)*) => {
         fn $name(&mut self, token: Token) -> ParseResult {
             let mut left = self.$next(token)?;
             loop {
@@ -66,7 +68,7 @@ macro_rules! binops {
                 let right = self.$next(tok2?)?;
                 left = UntypedExpression {
                     span: left.span.to(&right.span),
-                    value: UntypedExpressionKind::BinOp {
+                    value: UntypedExpressionKind::$return {
                         left: Box::new(left),
                         op,
                         right: Box::new(right),
@@ -75,6 +77,12 @@ macro_rules! binops {
             }
         }
         binops!($next $($rest)*);
+    };
+    ($name:ident { $($tok:pat_param => $result:expr),+ $(,)? } => $next:ident $($rest:tt)*) => {
+        binops!($name BinOp { $($tok => $result),+ } => $next $($rest)*);
+    };
+    ($name:ident #short_circuit { $($tok:pat_param => $result:expr),+ $(,)? } => $next:ident $($rest:tt)*) => {
+        binops!($name ShortCircuitBinOp { $($tok => $result),+ } => $next $($rest)*);
     };
     ($name:ident #flatten { $($tok:pat_param => $result:expr),+ $(,)? } => $next:ident $($rest:tt)*) => {
         fn $name(&mut self, token: Token) -> ParseResult {
@@ -134,7 +142,7 @@ where
 
     binops!(
         comma #flatten {
-            TokenKind::Comma => BinOpKind::MakeTuple,
+            TokenKind::Comma => FlatBinOpKind::MakeTuple,
         } =>
 
         pipe {
@@ -142,23 +150,21 @@ where
             TokenKind::SkinnyArrow => BinOpKind::InvertedCall,
         } =>
 
-        boolean_op {
-            TokenKind::DoublePipe => BinOpKind::BoolOr,
-            TokenKind::DoubleAmpersand => BinOpKind::BoolAnd,
-            TokenKind::DoubleHat => BinOpKind::BoolXor,
-        } =>
+        boolean_or #short_circuit { TokenKind::DoublePipe => ShortCircuitBinOpKind::BoolOr, } =>
+        boolean_xor { TokenKind::DoubleHat => BinOpKind::BoolXor, } =>
+        boolean_and #short_circuit { TokenKind::DoubleAmpersand => ShortCircuitBinOpKind::BoolAnd, } =>
 
-        bitwise_or { TokenKind::Pipe => BinOpKind::BitwiseOr } =>
+        bitwise_or  { TokenKind::Pipe => BinOpKind::BitwiseOr } =>
         bitwise_xor { TokenKind::Hat => BinOpKind::BitwiseXor } =>
-        bitwise_and { TokenKind::Ampersand => BinOpKind::BitwiseAnd } =>
+        bitwise_and  { TokenKind::Ampersand => BinOpKind::BitwiseAnd } =>
 
         comparision #flatten {
-            TokenKind::GreaterThanOrEqual => BinOpKind::GreaterThanOrEqual,
-            TokenKind::GreaterThan => BinOpKind::GreaterThan,
-            TokenKind::LessThanOrEqual => BinOpKind::LessThanOrEqual,
-            TokenKind::LessThan => BinOpKind::LessThan,
-            TokenKind::DoubleEquals => BinOpKind::CmpEquals,
-            TokenKind::NotEqual => BinOpKind::CmpNotEquals,
+            TokenKind::GreaterThanOrEqual => FlatBinOpKind::GreaterThanOrEqual,
+            TokenKind::GreaterThan => FlatBinOpKind::GreaterThan,
+            TokenKind::LessThanOrEqual => FlatBinOpKind::LessThanOrEqual,
+            TokenKind::LessThan => FlatBinOpKind::LessThan,
+            TokenKind::DoubleEquals => FlatBinOpKind::CmpEquals,
+            TokenKind::NotEqual => FlatBinOpKind::CmpNotEquals,
         } =>
 
         bitshift {
@@ -185,6 +191,7 @@ where
             TokenKind::Integer(i) => self.tag(Integer(i), token.span),
             TokenKind::Float(f) => self.tag(Float(f), token.span),
             TokenKind::Str(s) => self.tag(Str(s), token.span),
+            TokenKind::Bool(b) => self.tag(Bool(b), token.span),
             TokenKind::OpenParen => self.paren(token)?,
             a => todo!("{a:?}"),
         })

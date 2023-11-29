@@ -261,7 +261,11 @@ impl<I: Iterator<Item = char>> Lexer<I> {
 
         Ok(Token {
             span: lc.span.to(&end),
-            value: TokenKind::Identifier(id),
+            value: match id.as_str() {
+                "true" => TokenKind::Bool(true),
+                "false" => TokenKind::Bool(false),
+                _ => TokenKind::Identifier(id),
+            },
         })
     }
 }
@@ -272,7 +276,7 @@ mod tests {
 
     #[test]
     fn sequence() {
-        let test = "\"this is as\" 1 \"ssfsd\"\"lsdkfjsd\" 1 12 12.12 12. 1";
+        let test = "\"this is as\" 1 \"ssfsd\"\"lsdkfjsd\" 1 12 12.12 12. 1 true false";
         let mut l = Lexer::new("test".to_owned(), test.chars());
 
         macro_rules! test_lex {
@@ -290,6 +294,8 @@ mod tests {
         test_lex!(l => TokenKind::Float(_));
         test_lex!(l => TokenKind::Float(_));
         test_lex!(l => TokenKind::Integer(1));
+        test_lex!(l => TokenKind::Bool(true));
+        test_lex!(l => TokenKind::Bool(false));
         assert!(l.next().is_none())
     }
 
