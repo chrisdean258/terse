@@ -11,8 +11,13 @@ use thiserror::Error;
 pub enum ParseError {
     #[error(transparent)]
     LexError(#[from] LexError),
-    #[error("Unexpected EOF. Expected {0}")]
+    #[error("Expected `{0}` found EOF")]
     UnexpectedEOF(&'static str),
+    #[error("{}: Expected one of {expected:?} found `{}`", found.span, found.value)]
+    UnexpectedToken {
+        expected: Vec<TokenKind>,
+        found: Token,
+    },
 }
 
 #[derive(Clone, Debug)]
@@ -43,34 +48,73 @@ macro_rules! binops {
     ($name:ident) => {};
     ($name:ident { $($tok:pat_param => $result:expr),+ $(,)? } => $next:ident $($rest:tt)*) => {
         fn $name(&mut self, token: Token) -> ParseResult {
-            let left = self.$next(token)?;
-            let Some(sep) = self.lexer.next() else {
-                return Ok(left);
-            };
-            let sep = sep?;
-            let op = match &sep.value {
-                $($tok => $result),+,
-                _ => {
-                    self.lexer.put_back(Ok(sep));
+            let mut left = self.$next(token)?;
+            loop {
+                let Some(sep) = self.lexer.next() else {
                     return Ok(left);
-                }
-            };
-            let Some(tok2) = self.lexer.next() else {
-                return Err(ParseError::UnexpectedEOF("expression"));
-            };
+                };
+                let sep = sep?;
+                let op = match &sep.value {
+                    $($tok => $result),+,
+                    _ => {
+                        self.lexer.put_back(Ok(sep));
+                        return Ok(left);
+                    }
+                };
+                let Some(tok2) = self.lexer.next() else {
+                    return Err(ParseError::UnexpectedEOF("expression"));
+                };
 
-            let right = self.$next(tok2?)?;
-            Ok(UntypedExpression {
-                span: left.span.to(&right.span),
-                value: UntypedExpressionKind::BinOp {
-                    left: Box::new(left),
-                    op,
-                    right: Box::new(right),
+                let right = self.$next(tok2?)?;
+                left = UntypedExpression {
+                    span: left.span.to(&right.span),
+                    value: UntypedExpressionKind::BinOp {
+                        left: Box::new(left),
+                        op,
+                        right: Box::new(right),
+                    }
+                };
+            }
+        }
+        binops!($next $($rest)*);
+    };
+    ($name:ident #flatten { $($tok:pat_param => $result:expr),+ $(,)? } => $next:ident $($rest:tt)*) => {
+        fn $name(&mut self, mut token: Token) -> ParseResult {
+            let mut bulk = Vec::new();
+            let mut last_expr;
+            loop {
+                last_expr = self.$next(token)?;
+                let Some(sep) = self.lexer.next() else {
+                    break;
+                };
+                let sep = sep?;
+                let op = match &sep.value {
+                    $($tok => $result),+,
+                    _ => {
+                        self.lexer.put_back(Ok(sep));
+                        break;
+                    }
+                };
+                bulk.push((Box::new(last_expr), op));
+                let Some(tok2) = self.lexer.next() else {
+                    return Err(ParseError::UnexpectedEOF("expression"));
+                };
+                token = tok2?;
+            }
+            Ok(if bulk.is_empty() {
+                last_expr
+            } else {
+                UntypedExpression {
+                    span : bulk[0].0.span.to(&last_expr.span),
+                    value: UntypedExpressionKind::FlatBinOp {
+                        bulk,
+                        last: Box::new(last_expr),
+                    }
                 }
             })
         }
         binops!($next $($rest)*);
-    };
+    }
 }
 
 impl<I> Parser<I>
@@ -88,10 +132,19 @@ where
     }
 
     fn expr(&mut self, token: Token) -> ParseResult {
-        self.boolean_op(token)
+        self.comma(token)
     }
 
     binops!(
+        comma #flatten {
+            TokenKind::Comma => BinOpKind::MakeTuple,
+        } =>
+
+        pipe {
+            TokenKind::PipeArrow => BinOpKind::Pipe,
+            TokenKind::SkinnyArrow => BinOpKind::InvertedCall,
+        } =>
+
         boolean_op {
             TokenKind::DoublePipe => BinOpKind::BoolOr,
             TokenKind::DoubleAmpersand => BinOpKind::BoolAnd,
@@ -102,7 +155,7 @@ where
         bitwise_xor { TokenKind::Hat => BinOpKind::BitwiseXor } =>
         bitwise_and { TokenKind::Ampersand => BinOpKind::BitwiseAnd } =>
 
-        comparision {
+        comparision #flatten {
             TokenKind::GreaterThanOrEqual => BinOpKind::GreaterThanOrEqual,
             TokenKind::GreaterThan => BinOpKind::GreaterThan,
             TokenKind::LessThanOrEqual => BinOpKind::LessThanOrEqual,
@@ -135,7 +188,34 @@ where
             TokenKind::Integer(i) => self.tag(Integer(i), token.span),
             TokenKind::Float(f) => self.tag(Float(f), token.span),
             TokenKind::Str(s) => self.tag(Str(s), token.span),
-            _ => todo!(),
+            TokenKind::OpenParen => self.paren(token)?,
+            a => todo!("{a:?}"),
+        })
+    }
+
+    fn paren(&mut self, open_paren_token: Token) -> ParseResult {
+        let Some(token) = self.lexer.next() else {
+            return Err(ParseError::UnexpectedEOF("expression"));
+        };
+        let expr = self.expr(token?)?;
+
+        let Some(end_paren_token) = self.lexer.next() else {
+            return Err(ParseError::UnexpectedEOF("`)`"));
+        };
+        let end_paren_token = end_paren_token?;
+        let Token {
+            span,
+            value: TokenKind::CloseParen,
+        } = end_paren_token
+        else {
+            return Err(ParseError::UnexpectedToken {
+                expected: vec![TokenKind::CloseParen],
+                found: end_paren_token,
+            });
+        };
+        Ok(UntypedExpression {
+            span: open_paren_token.span.to(&span),
+            value: UntypedExpressionKind::ParenExpr(Box::new(expr)),
         })
     }
 }

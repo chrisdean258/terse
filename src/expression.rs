@@ -19,9 +19,14 @@ pub enum UntypedExpressionKind {
         op: BinOpKind,
         right: SubExpr,
     },
+    FlatBinOp {
+        bulk: Vec<(SubExpr, BinOpKind)>,
+        last: SubExpr,
+    },
+    ParenExpr(SubExpr),
 }
 
-#[derive(Clone, Debug, Copy)]
+#[derive(Clone, Debug, Copy, PartialEq, Eq)]
 pub enum BinOpKind {
     Add,
     Subtract,
@@ -43,6 +48,9 @@ pub enum BinOpKind {
     CmpNotEquals,
     BitShiftRight,
     BitShiftLeft,
+    Pipe,
+    InvertedCall,
+    MakeTuple,
 }
 
 impl Display for BinOpKind {
@@ -71,6 +79,9 @@ impl Display for BinOpKind {
                 Self::CmpNotEquals => "!=",
                 Self::BitShiftRight => ">>",
                 Self::BitShiftLeft => "<<",
+                Self::Pipe => "|>",
+                Self::InvertedCall => "->",
+                Self::MakeTuple => ",",
             }
         )
     }
@@ -83,6 +94,15 @@ impl Display for UntypedExpressionKind {
             Self::Float(fl) => write!(f, "{fl}"),
             Self::Str(s) => write!(f, "{s:?}"),
             Self::BinOp { left, op, right } => write!(f, "({left} {op} {right})"),
+            Self::ParenExpr(e) => write!(f, "({e})"),
+            Self::FlatBinOp { bulk, last } => {
+                write!(f, "(")?;
+                for (expr, op) in bulk.iter() {
+                    let spc = if *op == BinOpKind::MakeTuple { "" } else { " " };
+                    write!(f, "{expr}{spc}{op} ")?;
+                }
+                write!(f, "{last})")
+            }
         }
     }
 }
