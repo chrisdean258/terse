@@ -1,8 +1,9 @@
 use crate::{
-    span::{LocatedCharacter, Span, TextLocator},
+    span::{ControlBlock, Span},
     token::{Token, TokenKind},
 };
-use itertools::{put_back, structs::PutBack};
+use std::mem::replace;
+use std::{cell::RefCell, rc::Rc};
 use thiserror::Error;
 
 #[derive(Error, Debug, Clone)]
@@ -13,39 +14,47 @@ pub enum LexError {
     EOFString(Span),
 }
 
-pub struct Lexer<I: Iterator<Item = char>> {
-    characters: PutBack<TextLocator<I>>,
+#[derive(Debug)]
+pub struct Lexer {
+    characters: Vec<char>,
+    cursor: usize,
+    meta: Rc<ControlBlock>,
 }
 
-impl<I: Iterator<Item = char>> Iterator for Lexer<I> {
+impl Iterator for Lexer {
     type Item = Result<Token, LexError>;
     fn next(&mut self) -> Option<Self::Item> {
         use TokenKind::*;
-        while self.next_if(|c| c.is_whitespace()).is_some() {}
+        while let Some(c) = self.next_if(|c| c.is_whitespace()) {
+            if c == '\n' {
+                self.meta.newlines.borrow_mut().push(self.cursor - 1)
+            }
+        }
+        let start_idx = self.cursor;
         let lc = self.next_char()?;
 
         macro_rules! lex_tree {
             ($default:expr) => {
-                Some(Ok(Token { value: $default, span: lc.span}))
+                Some(Ok(Token { value: $default, span: self.span_to_here(start_idx)}))
             };
             ($pat_paramtern:pat => $($rest:tt)*) => {
                 Some($pat_paramtern) => lex_tree!($($rest)*),
             };
             ($default:expr, {$($subpat_param:literal => $val:expr $(,{$($rest:tt)*})?),+ $(,)?}) => {{
                 match self.next_char() {
-                    $(Some(LocatedCharacter {span: _span, value:$subpat_param}) => lex_tree!($val $(,{$($rest)*})?),)+
-                    Some(nc) => {
-                        self.characters.put_back(nc);
+                    $(Some($subpat_param) => lex_tree!($val $(,{$($rest)*})?),)+
+                    Some(_) => {
+                        self.cursor -= 1;
                         lex_tree!($default)
                     }
                     None => lex_tree!($default)
                 }
             }};
         }
-        match lc.value {
-            '0'..='9' => Some(self.num(lc)),
-            '"' => Some(self.string(lc)),
-            '_' | 'a'..='z' | 'A'..='Z' => Some(self.identifier_or_keyword(lc)),
+        match lc {
+            '0'..='9' => Some(self.num(lc, start_idx)),
+            '"' => Some(self.string(lc, start_idx)),
+            '_' | 'a'..='z' | 'A'..='Z' => Some(self.identifier_or_keyword(lc, start_idx)),
             '=' => lex_tree!(SingleEquals, {
                 '=' => DoubleEquals,
                 '>' => FatArrow,
@@ -122,20 +131,18 @@ impl<I: Iterator<Item = char>> Iterator for Lexer<I> {
             '\\' => {
                 if let Some(nc) = self.next_if(|c| c.is_numeric()) {
                     let mut num = String::new();
-                    num.push(nc.value);
-                    let end = self
-                        .collect_while(|c| c.is_numeric(), &mut num)
-                        .unwrap_or(nc.clone());
+                    num.push(nc);
+                    self.collect_while(|c| c.is_numeric(), &mut num);
                     let num = num.parse().expect("Parsing on only numeric characters");
                     Some(Ok(Token {
-                        span: nc.span.to(&end.span),
+                        span: self.span_to_here(start_idx),
                         value: LambdaArg(num),
                     }))
                 } else {
                     lex_tree!(BackSlash)
                 }
             }
-            _ => Some(Err(LexError::Char(lc.value, lc.span))),
+            _ => Some(Err(LexError::Char(lc, self.span_to_here(start_idx)))),
         }
     }
 }
@@ -165,64 +172,87 @@ fn escape(string: &str) -> String {
     output
 }
 
-impl<I: Iterator<Item = char>> Lexer<I> {
-    pub fn new(label: String, characters: I) -> Self {
-        let characters = put_back(TextLocator::new(label, characters));
-        Self { characters }
+impl Lexer {
+    pub fn new(label: String, characters: Vec<char>) -> Self {
+        let meta = Rc::new(ControlBlock {
+            label,
+            newlines: RefCell::new(Vec::new()),
+        });
+        Self {
+            characters,
+            cursor: 0,
+            meta,
+        }
     }
 
-    fn next_char(&mut self) -> Option<LocatedCharacter> {
-        self.characters.next()
-    }
-
-    fn next_if<C>(&mut self, mut cond: C) -> Option<LocatedCharacter>
-    where
-        C: FnMut(char) -> bool,
-    {
-        let lc = self.next_char()?;
-        if cond(lc.value) {
-            Some(lc)
+    fn next_char(&mut self) -> Option<char> {
+        if self.cursor < self.characters.len() {
+            let next = self.cursor + 1;
+            let cursor = replace(&mut self.cursor, next);
+            Some(self.characters[cursor])
         } else {
-            self.characters.put_back(lc);
             None
         }
     }
 
-    fn collect_while<T>(&mut self, mut cond: T, output: &mut String) -> Option<LocatedCharacter>
+    fn next_if<C>(&mut self, mut cond: C) -> Option<char>
+    where
+        C: FnMut(char) -> bool,
+    {
+        let lc = self.next_char()?;
+        if cond(lc) {
+            Some(lc)
+        } else {
+            self.cursor -= 1;
+            None
+        }
+    }
+
+    fn collect_while<T>(&mut self, mut cond: T, output: &mut String)
     where
         T: FnMut(char) -> bool,
     {
-        let mut final_char = None;
         while let Some(lc) = self.next_if(&mut cond) {
-            output.push(lc.value);
-            final_char = Some(lc);
+            output.push(lc);
         }
-        final_char
     }
 
-    fn num(&mut self, lc: LocatedCharacter) -> Result<Token, LexError> {
+    fn span_to_here(&self, from: usize) -> Span {
+        self.span(from, self.cursor - 1)
+    }
+
+    fn span(&self, from: usize, to: usize) -> Span {
+        Span {
+            from,
+            to,
+            meta: self.meta.clone(),
+        }
+    }
+
+    fn num(&mut self, lc: char, start_idx: usize) -> Result<Token, LexError> {
         let mut nums = String::new();
-        nums.push(lc.value);
-        let final_char = self
-            .collect_while(|c| c.is_numeric(), &mut nums)
-            .unwrap_or_else(|| lc.clone());
-        let span = lc.span.to(&final_char.span);
-        let Some(dotlc) = self.next_if(|c| c == '.') else {
+        nums.push(lc);
+        self.collect_while(|c| c.is_numeric(), &mut nums);
+        let int_val = nums.parse().expect("numerical string failed to parse");
+        let Some('.') = self.next_if(|c| c == '.') else {
             return Ok(Token {
-                span,
-                value: TokenKind::Integer(
-                    nums.parse()
-                        .expect("numerical string failed to parse as int"),
-                ),
+                span: self.span_to_here(start_idx),
+                value: TokenKind::Integer(int_val),
             });
         };
         nums.push('.');
-        let end = self
-            .collect_while(|c| c.is_numeric(), &mut nums)
-            .unwrap_or(dotlc)
-            .span;
+        let l = nums.len();
+        self.collect_while(|c| c.is_numeric(), &mut nums);
+        //we didn't get any more characters so we will let the number and dot be lexed separately
+        if nums.len() == l {
+            self.cursor -= 1;
+            return Ok(Token {
+                span: self.span_to_here(start_idx),
+                value: TokenKind::Integer(int_val),
+            });
+        }
         Ok(Token {
-            span: span.to(&end),
+            span: self.span_to_here(start_idx),
             value: TokenKind::Float(
                 nums.parse()
                     .expect("numerical string failed to parse as int"),
@@ -230,39 +260,40 @@ impl<I: Iterator<Item = char>> Lexer<I> {
         })
     }
 
-    fn string(&mut self, lc: LocatedCharacter) -> Result<Token, LexError> {
+    fn string(&mut self, _start_quote: char, start_idx: usize) -> Result<Token, LexError> {
         let mut chars = String::new();
         let mut prev_slash = false;
-        let Some(_lc) = self.collect_while(
+        self.collect_while(
             |c| {
                 let rtn = c != '"' || prev_slash;
                 prev_slash = c == '\\';
                 rtn
             },
             &mut chars,
-        ) else {
-            return Err(LexError::EOFString(lc.span));
-        };
-        if let Some(end_quote_lc) = self.next_if(|c| c == '"') {
+        );
+        if let Some('"') = self.next_if(|c| c == '"') {
+            let span = self.span_to_here(start_idx);
             Ok(Token {
-                span: lc.span.to(&end_quote_lc.span),
+                span,
                 value: TokenKind::Str(escape(&chars)),
             })
         } else {
-            Err(LexError::EOFString(lc.span))
+            let span = self.span_to_here(start_idx);
+            Err(LexError::EOFString(span))
         }
     }
 
-    fn identifier_or_keyword(&mut self, lc: LocatedCharacter) -> Result<Token, LexError> {
+    fn identifier_or_keyword(
+        &mut self,
+        start_char: char,
+        start_idx: usize,
+    ) -> Result<Token, LexError> {
         let mut id = String::new();
-        id.push(lc.value);
-        let end = self
-            .collect_while(|c| c == '_' || c.is_alphabetic() || c.is_numeric(), &mut id)
-            .unwrap_or_else(|| lc.clone())
-            .span;
+        id.push(start_char);
+        self.collect_while(|c| c == '_' || c.is_alphabetic() || c.is_numeric(), &mut id);
 
         Ok(Token {
-            span: lc.span.to(&end),
+            span: self.span_to_here(start_idx),
             value: match id.as_str() {
                 "true" => TokenKind::Bool(true),
                 "false" => TokenKind::Bool(false),
@@ -279,7 +310,7 @@ mod tests {
     #[test]
     fn sequence() {
         let test = "\"this is as\" 1 \"ssfsd\"\"lsdkfjsd\" 1 12 12.12 12. 1 true false";
-        let mut l = Lexer::new("test".to_owned(), test.chars());
+        let mut l = Lexer::new("test".to_owned(), test.chars().collect());
 
         macro_rules! test_lex {
             ($lexer:expr => $expt:pat) => {
@@ -294,7 +325,8 @@ mod tests {
         test_lex!(l => TokenKind::Integer(1));
         test_lex!(l => TokenKind::Integer(12));
         test_lex!(l => TokenKind::Float(_));
-        test_lex!(l => TokenKind::Float(_));
+        test_lex!(l => TokenKind::Integer(12));
+        test_lex!(l => TokenKind::Dot);
         test_lex!(l => TokenKind::Integer(1));
         test_lex!(l => TokenKind::Bool(true));
         test_lex!(l => TokenKind::Bool(false));
@@ -342,7 +374,7 @@ mod tests {
         let ops: Vec<String> = operators.iter().map(|o| o.to_string()).collect();
         let ops = ops.join(" ");
 
-        let l = Lexer::new("operators".to_owned(), ops.chars());
+        let l = Lexer::new("operators".to_owned(), ops.chars().collect());
 
         for (kind, res_token) in operators.iter().zip(l) {
             assert_eq!(res_token.unwrap().value, *kind);
@@ -352,7 +384,7 @@ mod tests {
     #[test]
     fn string() {
         let test = "\"test\\n\"";
-        let mut l = Lexer::new("test".to_owned(), test.chars());
+        let mut l = Lexer::new("test".to_owned(), test.chars().collect());
 
         let TokenKind::Str(s) = l.next().unwrap().unwrap().value else {
             panic!("Lexer did not yield String token");
@@ -364,7 +396,7 @@ mod tests {
     #[test]
     fn float() {
         let test = "1.2";
-        let mut l = Lexer::new("test".to_owned(), test.chars());
+        let mut l = Lexer::new("test".to_owned(), test.chars().collect());
 
         let TokenKind::Float(s) = l.next().unwrap().unwrap().value else {
             panic!("Lexer did not yield Float token");
@@ -384,7 +416,7 @@ mod tests {
     #[test]
     fn locations() {
         let test = "\"this is as\" 1 \n\"ssfsd\"\n\"lsdkfjsd\" 1 12 12.12 12. 1";
-        let mut l = Lexer::new("test".to_owned(), test.chars());
+        let mut l = Lexer::new("test".to_owned(), test.chars().collect());
 
         macro_rules! span {
             ($lexer:expr) => {
@@ -399,7 +431,8 @@ mod tests {
         assert_eq!(span!(l).to_string(), "test:3,12");
         assert_eq!(span!(l).to_string(), "test:3,14-3,15");
         assert_eq!(span!(l).to_string(), "test:3,17-3,21");
-        assert_eq!(span!(l).to_string(), "test:3,23-3,25");
+        assert_eq!(span!(l).to_string(), "test:3,23-3,24");
+        assert_eq!(span!(l).to_string(), "test:3,25");
         assert_eq!(span!(l).to_string(), "test:3,27");
         assert!(l.next().is_none())
     }
@@ -407,7 +440,7 @@ mod tests {
     #[test]
     fn correct_put_back() {
         let test = "(1,2)+(3,4)";
-        let mut l = Lexer::new("test".to_owned(), test.chars());
+        let mut l = Lexer::new("test".to_owned(), test.chars().collect());
 
         macro_rules! test_lex {
             ($lexer:expr => $expt:pat) => {

@@ -18,7 +18,7 @@ fn main() {
 }
 
 fn run(test: &str) -> Result<value::Value, Box<dyn Error>> {
-    let l = lexer::Lexer::new("test".to_owned(), test.chars());
+    let l = lexer::Lexer::new("test".to_owned(), test.chars().collect());
     let t = parser::parse(l)?;
     let mut intp = interpretter::Interpretter::new();
     Ok(intp.interpret(&t)?)
