@@ -1,20 +1,63 @@
 use crate::span::Span;
 use std::fmt::{Display, Formatter};
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct UntypedExpression {
     pub span: Span,
     pub value: UntypedExpressionKind,
 }
 
+#[derive(Debug)]
+pub struct UntypedLValueExpression {
+    pub span: Span,
+    pub value: LValueKind,
+}
+
+impl UntypedExpression {
+    pub fn to_lvalue(self) -> Result<UntypedLValueExpression, Self> {
+        let UntypedExpressionKind::LValue(value) = self.value else {
+            return Err(self);
+        };
+        Ok(UntypedLValueExpression {
+            value,
+            span: self.span,
+        })
+    }
+}
+
+impl UntypedLValueExpression {
+    pub fn to_untyped_expression(self) -> UntypedExpression {
+        UntypedExpression {
+            value: UntypedExpressionKind::LValue(self.value),
+            span: self.span,
+        }
+    }
+}
+
 type SubExpr = Box<UntypedExpression>;
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub enum UntypedExpressionKind {
+    RValue(RValueKind),
+    LValue(LValueKind),
+}
+
+#[derive(Debug)]
+pub enum LValueKind {
+    Identifier(String),
+}
+
+#[derive(Debug)]
+pub enum RValueKind {
     Integer(i64),
     Float(f64),
     Str(String),
     Bool(bool),
+    Assignment {
+        left: UntypedLValueExpression,
+        op: AssignmentKind,
+        right: SubExpr,
+    },
     BinOp {
         left: SubExpr,
         op: BinOpKind,
@@ -48,6 +91,11 @@ pub enum BinOpKind {
     BitShiftLeft,
     InvertedCall,
     Pipe,
+}
+
+#[derive(Clone, Debug, Copy, PartialEq, Eq)]
+pub enum AssignmentKind {
+    Equals,
 }
 
 #[derive(Clone, Debug, Copy, PartialEq, Eq)]
@@ -123,7 +171,7 @@ impl Display for ShortCircuitBinOpKind {
     }
 }
 
-impl Display for UntypedExpressionKind {
+impl Display for RValueKind {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
         match self {
             Self::Integer(i) => write!(f, "{i}"),
@@ -131,6 +179,7 @@ impl Display for UntypedExpressionKind {
             Self::Str(s) => write!(f, "{s:?}"),
             Self::Bool(b) => write!(f, "{b}"),
             Self::BinOp { left, op, right } => write!(f, "({left} {op} {right})"),
+            Self::Assignment { left, _op, right } => write!(f, "({left} = {right})"),
             Self::ShortCircuitBinOp { left, op, right } => write!(f, "({left} {op} {right})"),
             Self::ParenExpr(e) => write!(f, "({e})"),
             Self::FlatBinOp { first, rest } => {
@@ -145,6 +194,21 @@ impl Display for UntypedExpressionKind {
                 }
                 Ok(())
             }
+        }
+    }
+}
+
+impl Display for LValueKind {
+    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
+        Ok(())
+    }
+}
+
+impl Display for UntypedExpressionKind {
+    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
+        match self {
+            Self::RValue(r) => write!(f, "{r}"),
+            Self::LValue(l) => write!(f, "{l}"),
         }
     }
 }

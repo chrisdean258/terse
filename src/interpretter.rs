@@ -1,6 +1,7 @@
 use crate::{
     expression::{
-        BinOpKind, FlatBinOpKind, ShortCircuitBinOpKind, UntypedExpression, UntypedExpressionKind,
+        BinOpKind, FlatBinOpKind, RValueKind, ShortCircuitBinOpKind, UntypedExpression,
+        UntypedExpressionKind,
     },
     parser::Ast,
     span::Span,
@@ -47,20 +48,19 @@ impl Interpretter {
 
     fn expr(&mut self, expr: &UntypedExpression) -> Result<FlowControl, InterpretterError> {
         match &expr.value {
-            UntypedExpressionKind::Integer(i) => Ok(FlowControl::Value(Value::Integer(*i))),
-            UntypedExpressionKind::Float(f) => Ok(FlowControl::Value(Value::Float(*f))),
-            UntypedExpressionKind::Bool(b) => Ok(FlowControl::Value(Value::Bool(*b))),
-            UntypedExpressionKind::Str(s) => Ok(FlowControl::Value(Value::Str(s.clone()))),
-            UntypedExpressionKind::BinOp { left, op, right } => {
-                self.binop(&expr.span, left, op, right)
-            }
-            UntypedExpressionKind::FlatBinOp { first, rest } => {
-                self.flat_binop(&expr.span, first, rest)
-            }
-            UntypedExpressionKind::ShortCircuitBinOp { left, op, right } => {
-                self.short_circuit_binop(&expr.span, left, op, right)
-            }
-            UntypedExpressionKind::ParenExpr(expr) => self.expr(expr.as_ref()),
+            UntypedExpressionKind::RValue(r) => match r {
+                RValueKind::Integer(i) => Ok(FlowControl::Value(Value::Integer(*i))),
+                RValueKind::Float(f) => Ok(FlowControl::Value(Value::Float(*f))),
+                RValueKind::Bool(b) => Ok(FlowControl::Value(Value::Bool(*b))),
+                RValueKind::Str(s) => Ok(FlowControl::Value(Value::Str(s.clone()))),
+                RValueKind::BinOp { left, op, right } => self.binop(&expr.span, left, op, right),
+                RValueKind::FlatBinOp { first, rest } => self.flat_binop(&expr.span, first, rest),
+                RValueKind::ShortCircuitBinOp { left, op, right } => {
+                    self.short_circuit_binop(&expr.span, left, op, right)
+                }
+                RValueKind::ParenExpr(expr) => self.expr(expr.as_ref()),
+            },
+            UntypedExpressionKind::LValue(_l) => unreachable!(),
         }
     }
 

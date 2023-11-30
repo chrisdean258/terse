@@ -1,6 +1,7 @@
 use crate::{
     expression::{
-        BinOpKind, FlatBinOpKind, ShortCircuitBinOpKind, UntypedExpression, UntypedExpressionKind,
+        AssignmentKind, BinOpKind, FlatBinOpKind, LValueKind, RValueKind, ShortCircuitBinOpKind,
+        UntypedExpression, UntypedExpressionKind,
     },
     lexer::LexError,
     span::Span,
@@ -9,7 +10,7 @@ use crate::{
 use itertools::{put_back, structs::PutBack};
 use thiserror::Error;
 
-#[derive(Error, Debug, Clone)]
+#[derive(Error, Debug)]
 pub enum ParseError {
     #[error(transparent)]
     LexError(#[from] LexError),
@@ -20,9 +21,11 @@ pub enum ParseError {
         expected: Vec<TokenKind>,
         found: Token,
     },
+    #[error("{}: `{}` cannot be assigned to", .0.span, .0.value)]
+    NotAnLValue(UntypedExpression),
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct Ast {
     pub exprs: Vec<UntypedExpression>,
 }
@@ -68,11 +71,11 @@ macro_rules! binops {
                 let right = self.$next(tok2?)?;
                 left = UntypedExpression {
                     span: left.span.to(&right.span),
-                    value: UntypedExpressionKind::$return {
+                    value: UntypedExpressionKind::RValue(RValueKind::$return {
                         left: Box::new(left),
                         op,
                         right: Box::new(right),
-                    }
+                    })
                 };
             }
         }
@@ -111,10 +114,10 @@ macro_rules! binops {
             } else {
                 UntypedExpression {
                     span : first.span.to(&rest.last().unwrap().1.span),
-                    value: UntypedExpressionKind::FlatBinOp {
+                    value: UntypedExpressionKind::RValue(RValueKind::FlatBinOp {
                         first: Box::new(first),
                         rest,
-                    }
+                    })
                 }
             })
         }
@@ -132,15 +135,50 @@ where
             Ok(t) => Some(self.expr(t)),
         }
     }
-    fn tag(&mut self, value: UntypedExpressionKind, span: Span) -> UntypedExpression {
-        UntypedExpression { span, value }
+
+    fn tag_rval(&mut self, value: RValueKind, span: Span) -> UntypedExpression {
+        UntypedExpression {
+            span,
+            value: UntypedExpressionKind::RValue(value),
+        }
+    }
+
+    fn tag_lval(&mut self, value: LValueKind, span: Span) -> UntypedExpression {
+        UntypedExpression {
+            span,
+            value: UntypedExpressionKind::LValue(value),
+        }
     }
 
     fn expr(&mut self, token: Token) -> ParseResult {
-        self.comma(token)
+        self.equals(token)
+    }
+
+    fn equals(&mut self, token: Token) -> ParseResult {
+        let left = self.comma(token)?;
+        let Some(token) = self.lexer.next() else {
+            return Ok(left);
+        };
+        let op = match token?.value {
+            TokenKind::SingleEquals => AssignmentKind::Equals,
+            _ => return Ok(left),
+        };
+        let left = match left.to_lvalue() {
+            Ok(l) => l,
+            Err(left) => return Err(ParseError::NotAnLValue(left)),
+        };
+        let Some(token) = self.lexer.next() else {
+            return Err(ParseError::UnexpectedEOF("expression"));
+        };
+        let right = Box::new(self.expr(token?)?);
+        Ok(UntypedExpression {
+            span: left.span.to(&right.span),
+            value: UntypedExpressionKind::RValue(RValueKind::Assignment { left, op, right }),
+        })
     }
 
     binops!(
+
         comma #flatten {
             TokenKind::Comma => FlatBinOpKind::MakeTuple,
         } =>
@@ -182,16 +220,16 @@ where
             TokenKind::ForwardSlash => BinOpKind::Divide,
             TokenKind::DoubleForwardSlash => BinOpKind::IntegerDivide,
             TokenKind::Mod => BinOpKind::Mod,
-        } => literal
+        } => literal_id_or_recurse
     );
 
-    fn literal(&mut self, token: Token) -> ParseResult {
-        use UntypedExpressionKind::*;
+    fn literal_id_or_recurse(&mut self, token: Token) -> ParseResult {
         Ok(match token.value {
-            TokenKind::Integer(i) => self.tag(Integer(i), token.span),
-            TokenKind::Float(f) => self.tag(Float(f), token.span),
-            TokenKind::Str(s) => self.tag(Str(s), token.span),
-            TokenKind::Bool(b) => self.tag(Bool(b), token.span),
+            TokenKind::Integer(i) => self.tag_rval(RValueKind::Integer(i), token.span),
+            TokenKind::Float(f) => self.tag_rval(RValueKind::Float(f), token.span),
+            TokenKind::Str(s) => self.tag_rval(RValueKind::Str(s), token.span),
+            TokenKind::Bool(b) => self.tag_rval(RValueKind::Bool(b), token.span),
+            TokenKind::Identifier(i) => self.tag_lval(LValueKind::Identifier(i), token.span),
             TokenKind::OpenParen => self.paren(token)?,
             a => todo!("{}:{a:?}", token.span),
         })
@@ -219,7 +257,7 @@ where
         };
         Ok(UntypedExpression {
             span: open_paren_token.span.to(&span),
-            value: UntypedExpressionKind::ParenExpr(Box::new(expr)),
+            value: UntypedExpressionKind::RValue(RValueKind::ParenExpr(Box::new(expr))),
         })
     }
 }
