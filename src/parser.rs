@@ -9,7 +9,7 @@ use crate::{
 use itertools::{put_back, structs::PutBack};
 use thiserror::Error;
 
-#[derive(Error, Debug)]
+#[derive(Error, Debug, Clone)]
 pub enum ParseError {
     #[error(transparent)]
     LexError(#[from] LexError),
@@ -37,6 +37,7 @@ pub fn parse(lexer: impl Iterator<Item = Result<Token, LexError>>) -> Result<Ast
         lexer: put_back(lexer),
     };
     while let Some(e) = parser.parse_expr() {
+        eprintln!("~~~~ {} ~~~~~", e.clone().unwrap());
         tree.exprs.push(e?);
     }
     Ok(tree)
@@ -61,7 +62,7 @@ macro_rules! binops {
                         return Ok(left);
                     }
                 };
-                let Some(tok2) = self.lexer.next() else {
+                let Some(tok2) = dbg!(self.lexer.next()) else {
                     return Err(ParseError::UnexpectedEOF("expression"));
                 };
 
@@ -137,6 +138,7 @@ where
     }
 
     fn expr(&mut self, token: Token) -> ParseResult {
+        eprintln!("expr recieved {}", token.value);
         self.comma(token)
     }
 
@@ -193,11 +195,12 @@ where
             TokenKind::Str(s) => self.tag(Str(s), token.span),
             TokenKind::Bool(b) => self.tag(Bool(b), token.span),
             TokenKind::OpenParen => self.paren(token)?,
-            a => todo!("{a:?}"),
+            a => todo!("{}:{a:?}", token.span),
         })
     }
 
     fn paren(&mut self, open_paren_token: Token) -> ParseResult {
+        eprintln!("paren called with {:?}", open_paren_token);
         let Some(token) = self.lexer.next() else {
             return Err(ParseError::UnexpectedEOF("expression"));
         };

@@ -134,7 +134,7 @@ impl Display for UntypedExpressionKind {
             Self::ShortCircuitBinOp { left, op, right } => write!(f, "({left} {op} {right})"),
             Self::ParenExpr(e) => write!(f, "({e})"),
             Self::FlatBinOp { first, rest } => {
-                write!(f, "({first}")?;
+                write!(f, "{first}")?;
                 for (op, expr) in rest.iter() {
                     let spc = if *op == FlatBinOpKind::MakeTuple {
                         ""

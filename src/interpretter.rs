@@ -60,7 +60,7 @@ impl Interpretter {
             UntypedExpressionKind::ShortCircuitBinOp { left, op, right } => {
                 self.short_circuit_binop(&expr.span, left, op, right)
             }
-            _ => todo!(),
+            UntypedExpressionKind::ParenExpr(expr) => self.expr(expr.as_ref()),
         }
     }
 

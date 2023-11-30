@@ -2,7 +2,7 @@ use crate::{
     span::{LocatedCharacter, Span, TextLocator},
     token::{Token, TokenKind},
 };
-use std::mem::replace;
+use itertools::{put_back, structs::PutBack};
 use thiserror::Error;
 
 #[derive(Error, Debug, Clone)]
@@ -14,8 +14,7 @@ pub enum LexError {
 }
 
 pub struct Lexer<I: Iterator<Item = char>> {
-    characters: TextLocator<I>,
-    cache: Option<LocatedCharacter>,
+    characters: PutBack<TextLocator<I>>,
 }
 
 impl<I: Iterator<Item = char>> Iterator for Lexer<I> {
@@ -33,10 +32,13 @@ impl<I: Iterator<Item = char>> Iterator for Lexer<I> {
                 Some($pat_paramtern) => lex_tree!($($rest)*),
             };
             ($default:expr, {$($subpat_param:literal => $val:expr $(,{$($rest:tt)*})?),+ $(,)?}) => {{
-                let nc = self.next_char();
-                match nc.map(|c| c.value) {
-                    $(Some($subpat_param) => lex_tree!($val $(,{$($rest)*})?),)+
-                    _ => lex_tree!($default)
+                match self.next_char() {
+                    $(Some(LocatedCharacter {span: _span, value:$subpat_param}) => lex_tree!($val $(,{$($rest)*})?),)+
+                    Some(nc) => {
+                        self.characters.put_back(nc);
+                        lex_tree!($default)
+                    }
+                    None => lex_tree!($default)
                 }
             }};
         }
@@ -165,23 +167,23 @@ fn escape(string: &str) -> String {
 
 impl<I: Iterator<Item = char>> Lexer<I> {
     pub fn new(label: String, characters: I) -> Self {
-        let mut characters = TextLocator::new(label, characters);
-        let cache = characters.next();
-        Self { characters, cache }
+        let characters = put_back(TextLocator::new(label, characters));
+        Self { characters }
     }
 
     fn next_char(&mut self) -> Option<LocatedCharacter> {
-        replace(&mut self.cache, self.characters.next())
+        self.characters.next()
     }
 
     fn next_if<C>(&mut self, mut cond: C) -> Option<LocatedCharacter>
     where
         C: FnMut(char) -> bool,
     {
-        let lc = self.cache.as_ref()?;
+        let lc = self.next_char()?;
         if cond(lc.value) {
-            self.next_char()
+            Some(lc)
         } else {
+            self.characters.put_back(lc);
             None
         }
     }
@@ -399,6 +401,31 @@ mod tests {
         assert_eq!(span!(l).to_string(), "test:3,17-3,21");
         assert_eq!(span!(l).to_string(), "test:3,23-3,25");
         assert_eq!(span!(l).to_string(), "test:3,27");
+        assert!(l.next().is_none())
+    }
+
+    #[test]
+    fn correct_put_back() {
+        let test = "(1,2)+(3,4)";
+        let mut l = Lexer::new("test".to_owned(), test.chars());
+
+        macro_rules! test_lex {
+            ($lexer:expr => $expt:pat) => {
+                assert!(matches!($lexer.next().unwrap().unwrap().value, $expt))
+            };
+        }
+
+        test_lex!(l => TokenKind::OpenParen);
+        test_lex!(l => TokenKind::Integer(1));
+        test_lex!(l => TokenKind::Comma);
+        test_lex!(l => TokenKind::Integer(2));
+        test_lex!(l => TokenKind::CloseParen);
+        test_lex!(l => TokenKind::Plus);
+        test_lex!(l => TokenKind::OpenParen);
+        test_lex!(l => TokenKind::Integer(3));
+        test_lex!(l => TokenKind::Comma);
+        test_lex!(l => TokenKind::Integer(4));
+        test_lex!(l => TokenKind::CloseParen);
         assert!(l.next().is_none())
     }
 }
