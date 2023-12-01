@@ -12,6 +12,7 @@ pub enum TokenKind {
     Integer(i64),
     Float(f64),
     Str(String),
+    Char(char),
     Identifier(String),
     Bool(bool),
     LambdaArg(usize),
@@ -70,6 +71,9 @@ pub enum TokenKind {
     CloseBrace,
     DollarSign,
     BackSlash,
+    For,
+    In,
+    If,
 }
 
 impl Display for TokenKind {
@@ -79,6 +83,7 @@ impl Display for TokenKind {
             Self::Float(fl) => write!(f, "{fl}"),
             Self::Bool(b) => write!(f, "{b}"),
             Self::Str(s) => write!(f, "{s:?}"),
+            Self::Char(c) => write!(f, "{c}"),
             Self::Identifier(s) => write!(f, "{s}"),
             Self::LambdaArg(i) => write!(f, "\\{i}"),
             Self::SingleEquals => write!(f, "="),
@@ -136,6 +141,9 @@ impl Display for TokenKind {
             Self::CloseBrace => write!(f, "}}"),
             Self::DollarSign => write!(f, "$"),
             Self::BackSlash => write!(f, "\\"),
+            Self::For => write!(f, "for"),
+            Self::In => write!(f, "in"),
+            Self::If => write!(f, "if"),
         }
     }
 }

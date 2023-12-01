@@ -1,7 +1,7 @@
 use crate::{
     expression::{
         AssignmentKind, BinOpKind, FlatBinOpKind, LValueKind, RValueKind, ShortCircuitBinOpKind,
-        UntypedExpression, UntypedExpressionKind,
+        UntypedExpression, UntypedExpressionKind, UntypedLValue,
     },
     lexer::LexError,
     span::Span,
@@ -28,6 +28,15 @@ pub enum ParseError {
 #[derive(Debug)]
 pub struct Ast {
     pub exprs: Vec<UntypedExpression>,
+}
+
+impl std::fmt::Display for Ast {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        for e in self.exprs.iter() {
+            writeln!(f, "{e}")?;
+        }
+        Ok(())
+    }
 }
 
 struct Parser<I: Iterator<Item = Result<Token, LexError>>> {
@@ -150,8 +159,28 @@ where
         }
     }
 
+    fn must_next_token(&mut self, context: &'static str) -> Result<Token, ParseError> {
+        let Some(t) = self.lexer.next() else {
+            return Err(ParseError::UnexpectedEOF(context));
+        };
+        Ok(t?)
+    }
+
     fn expr(&mut self, token: Token) -> ParseResult {
-        self.equals(token)
+        match token.value {
+            TokenKind::OpenParen => self.paren(token),
+            TokenKind::For => self.for_(token),
+            TokenKind::If => self.if_(token),
+            TokenKind::OpenBrace => self.block(token),
+            _ => self.equals(token),
+        }
+    }
+
+    fn lval(&mut self, token: Token) -> Result<UntypedLValue, ParseError> {
+        match self.expr(token)?.to_lval() {
+            Ok(l) => Ok(l),
+            Err(e) => Err(ParseError::NotAnLValue(e)),
+        }
     }
 
     fn equals(&mut self, token: Token) -> ParseResult {
@@ -159,11 +188,15 @@ where
         let Some(token) = self.lexer.next() else {
             return Ok(left);
         };
-        let op = match token?.value {
+        let token = token?;
+        let op = match &token.value {
             TokenKind::SingleEquals => AssignmentKind::Equals,
-            _ => return Ok(left),
+            _ => {
+                self.lexer.put_back(Ok(token));
+                return Ok(left);
+            }
         };
-        let left = match left.to_lvalue() {
+        let left = match left.to_lval() {
             Ok(l) => l,
             Err(left) => return Err(ParseError::NotAnLValue(left)),
         };
@@ -171,10 +204,11 @@ where
             return Err(ParseError::UnexpectedEOF("expression"));
         };
         let right = Box::new(self.expr(token?)?);
-        Ok(UntypedExpression {
+        let rtn = UntypedExpression {
             span: left.span.to(&right.span),
             value: UntypedExpressionKind::RValue(RValueKind::Assignment { left, op, right }),
-        })
+        };
+        Ok(rtn)
     }
 
     binops!(
@@ -220,31 +254,48 @@ where
             TokenKind::ForwardSlash => BinOpKind::Divide,
             TokenKind::DoubleForwardSlash => BinOpKind::IntegerDivide,
             TokenKind::Mod => BinOpKind::Mod,
-        } => literal_id_or_recurse
+        } => call
     );
+
+    fn call(&mut self, token: Token) -> ParseResult {
+        let callable = self.literal_id_or_recurse(token)?;
+        let Some(token) = self.lexer.next() else {
+            return Ok(callable);
+        };
+        let token = token?;
+        let TokenKind::OpenParen = &token.value else {
+            self.lexer.put_back(Ok(token));
+            return Ok(callable);
+        };
+        let args = Box::new(self.paren(token)?);
+
+        Ok(UntypedExpression {
+            span: callable.span.to(&args.span),
+            value: UntypedExpressionKind::RValue(RValueKind::Call {
+                callable: Box::new(callable),
+                args,
+            }),
+        })
+    }
 
     fn literal_id_or_recurse(&mut self, token: Token) -> ParseResult {
         Ok(match token.value {
             TokenKind::Integer(i) => self.tag_rval(RValueKind::Integer(i), token.span),
             TokenKind::Float(f) => self.tag_rval(RValueKind::Float(f), token.span),
             TokenKind::Str(s) => self.tag_rval(RValueKind::Str(s), token.span),
+            TokenKind::Char(c) => self.tag_rval(RValueKind::Char(c), token.span),
             TokenKind::Bool(b) => self.tag_rval(RValueKind::Bool(b), token.span),
-            TokenKind::Identifier(i) => self.tag_lval(LValueKind::Identifier(i), token.span),
+            TokenKind::Identifier(i) => self.tag_lval(LValueKind::Variable(i), token.span),
             TokenKind::OpenParen => self.paren(token)?,
+            TokenKind::OpenBrace => self.block(token)?,
             a => todo!("{}:{a:?}", token.span),
         })
     }
 
     fn paren(&mut self, open_paren_token: Token) -> ParseResult {
-        let Some(token) = self.lexer.next() else {
-            return Err(ParseError::UnexpectedEOF("expression"));
-        };
-        let expr = self.expr(token?)?;
-
-        let Some(end_paren_token) = self.lexer.next() else {
-            return Err(ParseError::UnexpectedEOF("`)`"));
-        };
-        let end_paren_token = end_paren_token?;
+        let token = self.must_next_token("expression")?;
+        let expr = self.expr(token)?;
+        let end_paren_token = self.must_next_token("`)`")?;
         let Token {
             span,
             value: TokenKind::CloseParen,
@@ -258,6 +309,54 @@ where
         Ok(UntypedExpression {
             span: open_paren_token.span.to(&span),
             value: UntypedExpressionKind::RValue(RValueKind::ParenExpr(Box::new(expr))),
+        })
+    }
+
+    fn block(&mut self, open_brace_token: Token) -> ParseResult {
+        let mut exprs = Vec::new();
+        loop {
+            let Some(token) = self.lexer.next() else {
+                return Err(ParseError::UnexpectedEOF("expression expression in block"));
+            };
+            let token = token?;
+            if let TokenKind::CloseBrace = token.value {
+                return Ok(UntypedExpression {
+                    span: open_brace_token.span.to(&token.span),
+                    value: UntypedExpressionKind::RValue(RValueKind::Block(exprs)),
+                });
+            }
+            exprs.push(self.expr(token)?);
+        }
+    }
+
+    fn for_(&mut self, for_token: Token) -> ParseResult {
+        let token = self.must_next_token("lvalue in for")?;
+        let item = self.lval(token)?;
+        let in_token = self.must_next_token("`in`")?;
+        let TokenKind::In = in_token.value else {
+            return Err(ParseError::UnexpectedToken {
+                expected: vec![TokenKind::In],
+                found: in_token,
+            });
+        };
+        let token = self.must_next_token("expresion items of for loop")?;
+        let items = Box::new(self.expr(token)?);
+        let token = self.must_next_token("expresion body of for loop")?;
+        let body = Box::new(self.expr(token)?);
+        Ok(UntypedExpression {
+            span: for_token.span.to(&body.span),
+            value: UntypedExpressionKind::RValue(RValueKind::For { item, items, body }),
+        })
+    }
+
+    fn if_(&mut self, if_token: Token) -> ParseResult {
+        let token = self.must_next_token("condition in if")?;
+        let condition = Box::new(self.expr(token)?);
+        let token = self.must_next_token("body in if")?;
+        let body = Box::new(self.expr(token)?);
+        Ok(UntypedExpression {
+            span: if_token.span.to(&body.span),
+            value: UntypedExpressionKind::RValue(RValueKind::If { condition, body }),
         })
     }
 }

@@ -8,31 +8,31 @@ pub struct UntypedExpression {
 }
 
 #[derive(Debug)]
-pub struct UntypedLValueExpression {
+pub struct UntypedLValue {
     pub span: Span,
     pub value: LValueKind,
 }
 
 impl UntypedExpression {
-    pub fn to_lvalue(self) -> Result<UntypedLValueExpression, Self> {
+    pub fn to_lval(self) -> Result<UntypedLValue, Self> {
         let UntypedExpressionKind::LValue(value) = self.value else {
             return Err(self);
         };
-        Ok(UntypedLValueExpression {
+        Ok(UntypedLValue {
             value,
             span: self.span,
         })
     }
 }
 
-impl UntypedLValueExpression {
-    pub fn to_untyped_expression(self) -> UntypedExpression {
-        UntypedExpression {
-            value: UntypedExpressionKind::LValue(self.value),
-            span: self.span,
-        }
-    }
-}
+// impl UntypedLValue {
+// pub fn to_untyped_expression(self) -> UntypedExpression {
+// UntypedExpression {
+// value: UntypedExpressionKind::LValue(self.value),
+// span: self.span,
+// }
+// }
+// }
 
 type SubExpr = Box<UntypedExpression>;
 
@@ -44,7 +44,7 @@ pub enum UntypedExpressionKind {
 
 #[derive(Debug)]
 pub enum LValueKind {
-    Identifier(String),
+    Variable(String),
 }
 
 #[derive(Debug)]
@@ -52,9 +52,10 @@ pub enum RValueKind {
     Integer(i64),
     Float(f64),
     Str(String),
+    Char(char),
     Bool(bool),
     Assignment {
-        left: UntypedLValueExpression,
+        left: UntypedLValue,
         op: AssignmentKind,
         right: SubExpr,
     },
@@ -72,6 +73,20 @@ pub enum RValueKind {
         op: ShortCircuitBinOpKind,
         right: SubExpr,
     },
+    For {
+        item: UntypedLValue,
+        items: SubExpr,
+        body: SubExpr,
+    },
+    If {
+        condition: SubExpr,
+        body: SubExpr,
+    },
+    Call {
+        callable: SubExpr,
+        args: SubExpr,
+    },
+    Block(Vec<UntypedExpression>),
     ParenExpr(SubExpr),
 }
 
@@ -177,9 +192,14 @@ impl Display for RValueKind {
             Self::Integer(i) => write!(f, "{i}"),
             Self::Float(fl) => write!(f, "{fl}"),
             Self::Str(s) => write!(f, "{s:?}"),
+            Self::Char(c) => write!(f, "{c}"),
             Self::Bool(b) => write!(f, "{b}"),
             Self::BinOp { left, op, right } => write!(f, "({left} {op} {right})"),
-            Self::Assignment { left, _op, right } => write!(f, "({left} = {right})"),
+            Self::Assignment {
+                left,
+                op: _op,
+                right,
+            } => write!(f, "{left} = {right}"),
             Self::ShortCircuitBinOp { left, op, right } => write!(f, "({left} {op} {right})"),
             Self::ParenExpr(e) => write!(f, "({e})"),
             Self::FlatBinOp { first, rest } => {
@@ -194,13 +214,37 @@ impl Display for RValueKind {
                 }
                 Ok(())
             }
+            Self::For { item, items, body } => {
+                writeln!(f, "for {item} in {items}\n{body}")
+            }
+            Self::If { condition, body } => {
+                writeln!(f, "if {condition}\n{body}")
+            }
+            Self::Block(exprs) => {
+                writeln!(f, "{{")?;
+                for expr in exprs {
+                    writeln!(f, "    {expr}")?;
+                }
+                writeln!(f, "}}")
+            }
+            Self::Call { callable, args } => {
+                writeln!(f, "{callable}{args}")
+            }
         }
+    }
+}
+
+impl Display for UntypedLValue {
+    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
+        write!(f, "{}", self.value)
     }
 }
 
 impl Display for LValueKind {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
-        Ok(())
+        match self {
+            Self::Variable(i) => write!(f, "{i}"),
+        }
     }
 }
 

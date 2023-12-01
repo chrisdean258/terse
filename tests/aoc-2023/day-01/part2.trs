@@ -1,0 +1,26 @@
+tot = 0
+for line in stdin {
+	line1 = replace(line, "zero", "zero0zero")
+	line1 = replace(line1, "one", "one1one")
+	line1 = replace(line1, "two", "two2two")
+	line1 = replace(line1, "three", "three3three")
+	line1 = replace(line1, "four", "four4four")
+	line1 = replace(line1, "five", "five5five")
+	line1 = replace(line1, "six", "six6six")
+	line1 = replace(line1, "seven", "seven7seven")
+	line1 = replace(line1, "eight", "eight8eight")
+	line1 = replace(line1, "nine", "nine9nine")
+
+	first = 0-1
+	last = 0-1
+	for c in line1 {
+		if '0' <= c && c <= '9' {
+			last = c - '0'
+			if first == 0-1 {
+				first = last
+			}
+		}
+	}
+	tot = tot + 10 * first + last
+}
+tot

@@ -10,8 +10,12 @@ use thiserror::Error;
 pub enum LexError {
     #[error("{1}: unexpecteded character `{0}`")]
     Char(char, Span),
+    #[error("{1}: unexpecteded character `{0}`, expected `{1}`")]
+    UnexpectedChar(Span, char),
     #[error("unexpected EOF while lexing string beginning at `{0}`")]
     EOFString(Span),
+    #[error("unexpected EOF while lexing char beginning at `{0}`")]
+    EOFChar(Span),
 }
 
 #[derive(Debug)]
@@ -54,6 +58,7 @@ impl Iterator for Lexer {
         match lc {
             '0'..='9' => Some(self.num(lc, start_idx)),
             '"' => Some(self.string(lc, start_idx)),
+            '\'' => Some(self.char_(lc, start_idx)),
             '_' | 'a'..='z' | 'A'..='Z' => Some(self.identifier_or_keyword(lc, start_idx)),
             '=' => lex_tree!(SingleEquals, {
                 '=' => DoubleEquals,
@@ -147,6 +152,16 @@ impl Iterator for Lexer {
     }
 }
 
+fn escape_char(c: char) -> char {
+    match c {
+        'n' => '\n',
+        't' => '\t',
+        'r' => '\r',
+        '0' => '\0',
+        c => c,
+    }
+}
+
 fn escape(string: &str) -> String {
     let mut output = String::with_capacity(string.len());
     let mut prev_slash = false;
@@ -155,17 +170,7 @@ fn escape(string: &str) -> String {
             prev_slash = true;
             continue;
         }
-        let next = if prev_slash {
-            match c {
-                'n' => '\n',
-                't' => '\t',
-                'r' => '\r',
-                '0' => '\0',
-                c => c,
-            }
-        } else {
-            c
-        };
+        let next = if prev_slash { escape_char(c) } else { c };
         prev_slash = false;
         output.push(next);
     }
@@ -193,6 +198,14 @@ impl Lexer {
         } else {
             None
         }
+    }
+
+    fn must_next_char<C>(&mut self, start: usize, error: C) -> Result<char, LexError>
+    where
+        C: Fn(Span) -> LexError,
+    {
+        self.next_char()
+            .ok_or_else(|| error(self.span_to_here(start)))
     }
 
     fn next_if<C>(&mut self, mut cond: C) -> Option<char>
@@ -260,6 +273,23 @@ impl Lexer {
         })
     }
 
+    fn char_(&mut self, _start_quote: char, start_idx: usize) -> Result<Token, LexError> {
+        let c = match self.must_next_char(start_idx, LexError::EOFChar)? {
+            '\\' => escape_char(self.must_next_char(start_idx, LexError::EOFChar)?),
+            c => c,
+        };
+        let '\'' = self.must_next_char(start_idx, LexError::EOFChar)? else {
+            return Err(LexError::UnexpectedChar(
+                self.span_to_here(self.cursor - 1),
+                '\'',
+            ));
+        };
+        Ok(Token {
+            span: self.span_to_here(start_idx),
+            value: TokenKind::Char(c),
+        })
+    }
+
     fn string(&mut self, _start_quote: char, start_idx: usize) -> Result<Token, LexError> {
         let mut chars = String::new();
         let mut prev_slash = false;
@@ -297,6 +327,9 @@ impl Lexer {
             value: match id.as_str() {
                 "true" => TokenKind::Bool(true),
                 "false" => TokenKind::Bool(false),
+                "for" => TokenKind::For,
+                "in" => TokenKind::In,
+                "if" => TokenKind::If,
                 _ => TokenKind::Identifier(id),
             },
         })
@@ -305,18 +338,17 @@ impl Lexer {
 
 #[cfg(test)]
 mod tests {
+    macro_rules! test_lex {
+        ($lexer:expr => $expt:pat) => {
+            assert!(matches!($lexer.next().unwrap().unwrap().value, $expt))
+        };
+    }
     use super::*;
 
     #[test]
     fn sequence() {
         let test = "\"this is as\" 1 \"ssfsd\"\"lsdkfjsd\" 1 12 12.12 12. 1 true false";
         let mut l = Lexer::new("test".to_owned(), test.chars().collect());
-
-        macro_rules! test_lex {
-            ($lexer:expr => $expt:pat) => {
-                assert!(matches!($lexer.next().unwrap().unwrap().value, $expt))
-            };
-        }
 
         test_lex!(l => TokenKind::Str(_));
         test_lex!(l => TokenKind::Integer(1));
@@ -442,12 +474,6 @@ mod tests {
         let test = "(1,2)+(3,4)";
         let mut l = Lexer::new("test".to_owned(), test.chars().collect());
 
-        macro_rules! test_lex {
-            ($lexer:expr => $expt:pat) => {
-                assert!(matches!($lexer.next().unwrap().unwrap().value, $expt))
-            };
-        }
-
         test_lex!(l => TokenKind::OpenParen);
         test_lex!(l => TokenKind::Integer(1));
         test_lex!(l => TokenKind::Comma);
@@ -459,6 +485,17 @@ mod tests {
         test_lex!(l => TokenKind::Comma);
         test_lex!(l => TokenKind::Integer(4));
         test_lex!(l => TokenKind::CloseParen);
+        assert!(l.next().is_none())
+    }
+
+    #[test]
+    fn cpb() {
+        let test = "(test,";
+        let mut l = Lexer::new("test".to_owned(), test.chars().collect());
+
+        test_lex!(l => TokenKind::OpenParen);
+        test_lex!(l => TokenKind::Identifier(_));
+        test_lex!(l => TokenKind::Comma);
         assert!(l.next().is_none())
     }
 }

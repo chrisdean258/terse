@@ -7,6 +7,9 @@ pub enum Value {
     Str(String),
     Tuple(Vec<Value>),
     Bool(bool),
+    Array(Vec<Value>),
+    Char(char),
+    Callable(fn(Vec<Value>) -> Value),
 }
 
 impl Display for Value {
@@ -17,6 +20,7 @@ impl Display for Value {
             Self::Integer(i) => write!(f, "{i}"),
             Self::Float(fl) => write!(f, "{fl}"),
             Self::Str(s) => write!(f, "{s:?}"),
+            Self::Char(c) => write!(f, "{c:?}"),
             Self::Tuple(tup) => {
                 let mut first = true;
                 for value in tup.iter() {
@@ -30,6 +34,20 @@ impl Display for Value {
                 }
                 write!(f, ")")
             }
+            Self::Array(arr) => {
+                let mut first = true;
+                for value in arr.iter() {
+                    if first {
+                        write!(f, "[")?;
+                        first = false;
+                    } else {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{value}")?
+                }
+                write!(f, "]")
+            }
+            Self::Callable(c) => write!(f, "{c:?}"),
         }
     }
 }
