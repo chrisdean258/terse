@@ -224,7 +224,6 @@ where
     }
 
     binops!(
-
         comma #flatten {
             TokenKind::Comma => FlatBinOpKind::MakeTuple,
         } =>
@@ -232,8 +231,23 @@ where
         pipe {
             TokenKind::PipeArrow => BinOpKind::Pipe,
             TokenKind::SkinnyArrow => BinOpKind::InvertedCall,
-        } =>
+        } => lambda
+    );
 
+    fn lambda(&mut self, token: Token) -> ParseResult {
+        let expr = self.boolean_or(token)?;
+        Ok(if self.in_lambda {
+            self.in_lambda = false;
+            UntypedExpression {
+                span: expr.span.clone(),
+                value: UntypedExpressionKind::RValue(RValueKind::Lambda(Rc::new(expr))),
+            }
+        } else {
+            expr
+        })
+    }
+
+    binops!(
         boolean_or #short_circuit { TokenKind::DoublePipe => ShortCircuitBinOpKind::BoolOr, } =>
         boolean_xor { TokenKind::DoubleHat => BinOpKind::BoolXor, } =>
         boolean_and #short_circuit { TokenKind::DoubleAmpersand => ShortCircuitBinOpKind::BoolAnd, } =>

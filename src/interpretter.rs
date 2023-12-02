@@ -3,7 +3,6 @@ use crate::{
         AssignmentKind, BinOpKind, FlatBinOpKind, LValueKind, RValueKind, ShortCircuitBinOpKind,
         UntypedExpression, UntypedExpressionKind, UntypedLValue,
     },
-    nonempty_vec::NonEmptyVec,
     parser::Ast,
     span::Span,
     value::Value,
@@ -17,13 +16,13 @@ pub struct Interpretter {
 }
 
 pub struct ScopeTable {
-    scopes: NonEmptyVec<HashMap<String, Value>>,
+    scopes: Vec<HashMap<String, Value>>,
 }
 
 impl ScopeTable {
     pub fn new(presets: HashMap<String, Value>) -> Self {
         Self {
-            scopes: NonEmptyVec::new(presets),
+            scopes: vec![presets],
         }
     }
     pub fn insert(&mut self, key: &str, val: Value) {
@@ -32,7 +31,10 @@ impl ScopeTable {
                 *v = val;
             }
             None => {
-                self.scopes.last_mut().insert(key.into(), val);
+                self.scopes
+                    .last_mut()
+                    .expect("scopes is empty")
+                    .insert(key.into(), val);
             }
         }
     }
@@ -56,6 +58,17 @@ impl ScopeTable {
             }
         }
         None
+    }
+
+    pub fn open(&mut self) {
+        self.scopes.push(HashMap::new())
+    }
+
+    pub fn close(&mut self) {
+        self.scopes.pop();
+        if self.scopes.is_empty() {
+            panic!("popped last scope");
+        }
     }
 }
 
@@ -133,7 +146,7 @@ impl Interpretter {
                 RValueKind::For { item, items, body } => self.for_(item, items, body),
                 RValueKind::If { condition, body } => self.if_(condition, body),
                 RValueKind::Block(exprs) => self.block(exprs),
-                RValueKind::Call { callable, args } => self.call(callable, args),
+                RValueKind::Call { callable, args } => self.call(callable, args, &expr.span),
                 RValueKind::Lambda(subexpr) => Ok(Value::Lambda(subexpr.clone())),
                 RValueKind::LambdaArg(i) => self.lambda_arg(*i, &expr.span),
             },
@@ -176,6 +189,8 @@ impl Interpretter {
             (Value::Float(l), Add, Value::Float(r)) => Value::Float(l + r),
             (Value::Float(l), Multiply, Value::Float(r)) => Value::Float(l * r),
             (Value::Float(l), Subtract, Value::Float(r)) => Value::Float(l - r),
+
+            (a, InvertedCall, b) => self.evaluate_call(b, vec![a], span)?,
 
             (Value::Str(l), Add, Value::Str(r)) => Value::Str(l + &r),
             (Value::Tuple(l), Add, Value::Tuple(r)) => {
@@ -348,31 +363,43 @@ impl Interpretter {
         Ok(val)
     }
 
+    fn evaluate_call(
+        &mut self,
+        callable: Value,
+        args: Vec<Value>,
+        span: &Span,
+    ) -> InterpretterResult {
+        match callable {
+            Value::ExternallyCallable(c) => Ok(c(args)),
+            Value::Lambda(l) => {
+                self.scopes.open();
+                self.lambda_args.push(args);
+                let result = self.expr(&l);
+                self.lambda_args
+                    .pop()
+                    .expect("should have popped the args we pushed");
+                self.scopes.close();
+                result
+            }
+            _ => Err(FlowControl::Error(InterpretterError::NotCallable(
+                span.clone(),
+                callable,
+            ))),
+        }
+    }
+
     fn call(
         &mut self,
         callable: &UntypedExpression,
         args: &UntypedExpression,
+        span: &Span,
     ) -> InterpretterResult {
         let callable_val = self.expr(callable)?;
         let args = match self.expr(args)? {
             Value::Tuple(v) => v,
             a => vec![a],
         };
-        match callable_val {
-            Value::ExternallyCallable(c) => Ok(c(args)),
-            Value::Lambda(l) => {
-                self.lambda_args.push(args);
-                let result = self.expr(&l);
-                self.lambda_args
-                    .pop()
-                    .expect("should have popped the args we pushed");
-                result
-            }
-            _ => Err(FlowControl::Error(InterpretterError::NotCallable(
-                callable.span.clone(),
-                callable_val,
-            ))),
-        }
+        self.evaluate_call(callable_val, args, span)
     }
 
     fn lambda_arg(&mut self, num: usize, span: &Span) -> InterpretterResult {

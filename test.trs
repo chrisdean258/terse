@@ -1,0 +1,7 @@
+a = 2
+print(12 -> {
+	a = 3
+	print(a)
+	\0 + 12
+})
+print(a)

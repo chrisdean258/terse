@@ -4,7 +4,6 @@ use std::{
 mod expression;
 mod interpretter;
 mod lexer;
-mod nonempty_vec;
 mod parser;
 mod span;
 mod token;
@@ -79,7 +78,7 @@ fn run(program: &str) -> Result<value::Value, Box<dyn Error>> {
     // }
     // return Ok(value::Value::None);
     let t = parser::parse(l)?;
-    // eprintln!("{t}");
+    // eprintln!("{t:#?}");
     let mut vars = HashMap::new();
     vars.insert("stdin".into(), value::Value::Lazy(read_stdin));
     vars.insert(
