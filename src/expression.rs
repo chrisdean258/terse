@@ -1,5 +1,8 @@
 use crate::span::Span;
-use std::fmt::{Display, Formatter};
+use std::{
+    fmt::{Display, Formatter},
+    rc::Rc,
+};
 
 #[derive(Debug)]
 pub struct UntypedExpression {
@@ -88,6 +91,8 @@ pub enum RValueKind {
     },
     Block(Vec<UntypedExpression>),
     ParenExpr(SubExpr),
+    LambdaArg(usize),
+    Lambda(Rc<UntypedExpression>),
 }
 
 #[derive(Clone, Debug, Copy, PartialEq, Eq)]
@@ -229,6 +234,12 @@ impl Display for RValueKind {
             }
             Self::Call { callable, args } => {
                 writeln!(f, "{callable}{args}")
+            }
+            Self::LambdaArg(i) => {
+                writeln!(f, "\\{i}")
+            }
+            Self::Lambda(e) => {
+                writeln!(f, "{e}")
             }
         }
     }

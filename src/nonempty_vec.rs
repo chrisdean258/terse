@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use std::ops::{Deref, DerefMut};
 pub struct NonEmptyVec<T> {
     internal: Vec<T>,

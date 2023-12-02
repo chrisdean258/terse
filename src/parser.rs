@@ -8,6 +8,7 @@ use crate::{
     token::{Token, TokenKind},
 };
 use itertools::{put_back, structs::PutBack};
+use std::rc::Rc;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -41,12 +42,14 @@ impl std::fmt::Display for Ast {
 
 struct Parser<I: Iterator<Item = Result<Token, LexError>>> {
     lexer: PutBack<I>,
+    in_lambda: bool,
 }
 
 pub fn parse(lexer: impl Iterator<Item = Result<Token, LexError>>) -> Result<Ast, ParseError> {
     let mut tree = Ast { exprs: Vec::new() };
     let mut parser = Parser {
         lexer: put_back(lexer),
+        in_lambda: false,
     };
     while let Some(e) = parser.parse_expr() {
         tree.exprs.push(e?);
@@ -167,13 +170,22 @@ where
     }
 
     fn expr(&mut self, token: Token) -> ParseResult {
-        match token.value {
+        let expr = match token.value {
             TokenKind::OpenParen => self.paren(token),
             TokenKind::For => self.for_(token),
             TokenKind::If => self.if_(token),
             TokenKind::OpenBrace => self.block(token),
             _ => self.equals(token),
-        }
+        }?;
+        Ok(if self.in_lambda {
+            self.in_lambda = false;
+            UntypedExpression {
+                span: expr.span.clone(),
+                value: UntypedExpressionKind::RValue(RValueKind::Lambda(Rc::new(expr))),
+            }
+        } else {
+            expr
+        })
     }
 
     fn lval(&mut self, token: Token) -> Result<UntypedLValue, ParseError> {
@@ -286,6 +298,10 @@ where
             TokenKind::Char(c) => self.tag_rval(RValueKind::Char(c), token.span),
             TokenKind::Bool(b) => self.tag_rval(RValueKind::Bool(b), token.span),
             TokenKind::Identifier(i) => self.tag_lval(LValueKind::Variable(i), token.span),
+            TokenKind::LambdaArg(i) => {
+                self.in_lambda = true;
+                self.tag_rval(RValueKind::LambdaArg(i), token.span)
+            }
             TokenKind::OpenParen => self.paren(token)?,
             TokenKind::OpenBrace => self.block(token)?,
             a => todo!("{}:{a:?}", token.span),

@@ -13,6 +13,7 @@ use thiserror::Error;
 
 pub struct Interpretter {
     scopes: ScopeTable,
+    lambda_args: Vec<Vec<Value>>,
 }
 
 pub struct ScopeTable {
@@ -80,6 +81,8 @@ pub enum InterpretterError {
     NonBoolIfCondition(Span, Value),
     #[error("{0}: `{1}` is not callable")]
     NotCallable(Span, Value),
+    #[error("{0}: Reference to `\\{1}` in lambda only supplied with {2} arguments")]
+    NotEnoughArguments(Span, usize, usize),
 }
 
 #[derive(Debug, Clone)]
@@ -97,6 +100,7 @@ impl Interpretter {
     pub fn with_vars(presets: HashMap<String, Value>) -> Self {
         Self {
             scopes: ScopeTable::new(presets),
+            lambda_args: Vec::new(),
         }
     }
 
@@ -130,6 +134,8 @@ impl Interpretter {
                 RValueKind::If { condition, body } => self.if_(condition, body),
                 RValueKind::Block(exprs) => self.block(exprs),
                 RValueKind::Call { callable, args } => self.call(callable, args),
+                RValueKind::Lambda(subexpr) => Ok(Value::Lambda(subexpr.clone())),
+                RValueKind::LambdaArg(i) => self.lambda_arg(*i, &expr.span),
             },
             UntypedExpressionKind::LValue(l) => match l {
                 LValueKind::Variable(s) => self.variable(&expr.span, s),
@@ -348,17 +354,36 @@ impl Interpretter {
         args: &UntypedExpression,
     ) -> InterpretterResult {
         let callable_val = self.expr(callable)?;
-        let arg = self.expr(args)?;
-        let Value::Callable(c) = callable_val else {
-            return Err(FlowControl::Error(InterpretterError::NotCallable(
+        let args = match self.expr(args)? {
+            Value::Tuple(v) => v,
+            a => vec![a],
+        };
+        match callable_val {
+            Value::ExternallyCallable(c) => Ok(c(args)),
+            Value::Lambda(l) => {
+                self.lambda_args.push(args);
+                let result = self.expr(&l);
+                self.lambda_args
+                    .pop()
+                    .expect("should have popped the args we pushed");
+                result
+            }
+            _ => Err(FlowControl::Error(InterpretterError::NotCallable(
                 callable.span.clone(),
                 callable_val,
+            ))),
+        }
+    }
+
+    fn lambda_arg(&mut self, num: usize, span: &Span) -> InterpretterResult {
+        assert!(!self.lambda_args.is_empty());
+        if num >= self.lambda_args.last().unwrap().len() {
+            return Err(FlowControl::Error(InterpretterError::NotEnoughArguments(
+                span.clone(),
+                num,
+                self.lambda_args.len(),
             )));
-        };
-        let args = match arg {
-            Value::Tuple(v) => v,
-            _ => vec![arg],
-        };
-        Ok(c(args))
+        }
+        Ok(self.lambda_args.last().unwrap()[num].clone())
     }
 }

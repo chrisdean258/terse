@@ -25,8 +25,13 @@ fn str_replace(ipt: Vec<value::Value>) -> value::Value {
 }
 
 fn print_val(ipt: Vec<value::Value>) -> value::Value {
+    let mut first = true;
     for val in ipt {
-        print!("{val} ");
+        if !first {
+            print!(" ");
+        }
+        first = false;
+        print!("{val}");
     }
     println!();
     value::Value::None
@@ -54,10 +59,7 @@ fn main() -> ExitCode {
         None => return usage(),
     };
     match read_and_run(&program_file) {
-        Ok(v) => {
-            println!("{v}");
-            ExitCode::SUCCESS
-        }
+        Ok(_) => ExitCode::SUCCESS,
         Err(e) => {
             println!("{e}");
             ExitCode::FAILURE
@@ -79,12 +81,12 @@ fn run(program: &str) -> Result<value::Value, Box<dyn Error>> {
     let t = parser::parse(l)?;
     // eprintln!("{t}");
     let mut vars = HashMap::new();
+    vars.insert("stdin".into(), value::Value::Lazy(read_stdin));
     vars.insert(
-        "stdin".into(),
-        value::Value::Lazy(value::Lazy::new(Box::new(read_stdin))),
+        "replace".into(),
+        value::Value::ExternallyCallable(str_replace),
     );
-    vars.insert("replace".into(), value::Value::Callable(str_replace));
-    vars.insert("print".into(), value::Value::Callable(print_val));
+    vars.insert("print".into(), value::Value::ExternallyCallable(print_val));
     let mut intp = interpretter::Interpretter::with_vars(vars);
     Ok(intp.interpret(&t)?)
 }
