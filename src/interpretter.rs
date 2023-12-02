@@ -198,9 +198,6 @@ impl Interpretter {
             (Value::Float(l), Multiply, Value::Float(r)) => Value::Float(l * r),
             (Value::Float(l), Subtract, Value::Float(r)) => Value::Float(l - r),
 
-            (a, InvertedCall, b) => self.evaluate_call(&b, vec![a], span)?,
-            (Value::Array(a), Pipe, b) => self.pipe(&a, &b, span)?,
-
             (Value::Str(l), Add, Value::Str(r)) => Value::Str(l + &r),
             (Value::Tuple(l), Add, Value::Tuple(r)) => {
                 let mut t = l.clone();
@@ -238,6 +235,29 @@ impl Interpretter {
                         ))
                     }
                 }
+            }
+            (_a, InvertedCall) => {
+                let mut args: Vec<Value> = vec![left_val];
+                let b = if let UntypedExpressionKind::RValue(RValueKind::Call {
+                    callable,
+                    args: int_args,
+                }) = &right.value
+                {
+                    let callable = self.expr(callable)?;
+                    let internal = self.expr(int_args)?;
+                    match internal {
+                        Value::Tuple(mut a) => args.append(&mut a),
+                        a => args.push(a),
+                    }
+                    callable
+                } else {
+                    self.expr(right)?
+                };
+                self.evaluate_call(&b, args, span)?
+            }
+            (Value::Array(a), Pipe) => {
+                let b = self.expr(right)?;
+                self.pipe(a, &b, span)?
             }
             (_, op) => {
                 return Err(FlowControl::Error(

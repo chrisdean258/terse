@@ -111,8 +111,6 @@ pub enum BinOpKind {
     BitwiseXor,
     BitShiftRight,
     BitShiftLeft,
-    InvertedCall,
-    Pipe,
 }
 
 #[derive(Clone, Debug, Copy, PartialEq, Eq)]
@@ -135,6 +133,8 @@ pub enum FlatBinOpKind {
 pub enum ShortCircuitBinOpKind {
     BoolOr,
     BoolAnd,
+    InvertedCall,
+    Pipe,
 }
 
 impl Display for BinOpKind {
@@ -155,8 +155,6 @@ impl Display for BinOpKind {
                 Self::BitwiseXor => "^",
                 Self::BitShiftRight => ">>",
                 Self::BitShiftLeft => "<<",
-                Self::Pipe => "|>",
-                Self::InvertedCall => "->",
             }
         )
     }
@@ -188,6 +186,8 @@ impl Display for ShortCircuitBinOpKind {
             match self {
                 Self::BoolOr => "||",
                 Self::BoolAnd => "&&",
+                Self::Pipe => "|>",
+                Self::InvertedCall => "->",
             }
         )
     }

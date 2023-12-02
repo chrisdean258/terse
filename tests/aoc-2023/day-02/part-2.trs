@@ -1,5 +1,4 @@
-process_line = \{ split(\0, ": ")[1] -> \{replace(\0, ";", ",")} -> process_game -> power }
-process_game = \{ split(\0, ", ") |> encode -> maxs }
+process_line = \{ split(\0, ": ")[1] -> replace(";", ",") -> split(", ") |> encode  -> maxs -> power} 
 
 encode = \{
 	line = split(\0, " ")

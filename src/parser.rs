@@ -224,9 +224,9 @@ where
             TokenKind::Comma => FlatBinOpKind::MakeTuple,
         } =>
 
-        pipe {
-            TokenKind::PipeArrow => BinOpKind::Pipe,
-            TokenKind::SkinnyArrow => BinOpKind::InvertedCall,
+        pipe #short_circuit {
+            TokenKind::PipeArrow => ShortCircuitBinOpKind::Pipe,
+            TokenKind::SkinnyArrow => ShortCircuitBinOpKind::InvertedCall,
         } => lambda
     );
 
