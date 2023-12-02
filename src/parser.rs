@@ -40,19 +40,26 @@ impl std::fmt::Display for Ast {
     }
 }
 
+enum LambdaLevel {
+    None,
+    Arg,
+    Full,
+}
+
 struct Parser<I: Iterator<Item = Result<Token, LexError>>> {
     lexer: PutBack<I>,
-    in_lambda: bool,
+    in_lambda: LambdaLevel,
 }
 
 pub fn parse(lexer: impl Iterator<Item = Result<Token, LexError>>) -> Result<Ast, ParseError> {
     let mut tree = Ast { exprs: Vec::new() };
     let mut parser = Parser {
         lexer: put_back(lexer),
-        in_lambda: false,
+        in_lambda: LambdaLevel::None,
     };
     while let Some(e) = parser.parse_expr() {
-        tree.exprs.push(e?);
+        let e = e?;
+        tree.exprs.push(e);
     }
     Ok(tree)
 }
@@ -170,22 +177,11 @@ where
     }
 
     fn expr(&mut self, token: Token) -> ParseResult {
-        let expr = match token.value {
-            TokenKind::OpenParen => self.paren(token),
+        match token.value {
             TokenKind::For => self.for_(token),
             TokenKind::If => self.if_(token),
-            TokenKind::OpenBrace => self.block(token),
             _ => self.equals(token),
-        }?;
-        Ok(if self.in_lambda {
-            self.in_lambda = false;
-            UntypedExpression {
-                span: expr.span.clone(),
-                value: UntypedExpressionKind::RValue(RValueKind::Lambda(Rc::new(expr))),
-            }
-        } else {
-            expr
-        })
+        }
     }
 
     fn lval(&mut self, token: Token) -> Result<UntypedLValue, ParseError> {
@@ -236,8 +232,8 @@ where
 
     fn lambda(&mut self, token: Token) -> ParseResult {
         let expr = self.boolean_or(token)?;
-        Ok(if self.in_lambda {
-            self.in_lambda = false;
+        Ok(if let LambdaLevel::Arg = self.in_lambda {
+            self.in_lambda = LambdaLevel::None;
             UntypedExpression {
                 span: expr.span.clone(),
                 value: UntypedExpressionKind::RValue(RValueKind::Lambda(Rc::new(expr))),
@@ -259,8 +255,7 @@ where
         comparision #flatten {
             TokenKind::GreaterThanOrEqual => FlatBinOpKind::GreaterThanOrEqual,
             TokenKind::GreaterThan => FlatBinOpKind::GreaterThan,
-            TokenKind::LessThanOrEqual => FlatBinOpKind::LessThanOrEqual,
-            TokenKind::LessThan => FlatBinOpKind::LessThan,
+            TokenKind::LessThanOrEqual => FlatBinOpKind::LessThanOrEqual, TokenKind::LessThan => FlatBinOpKind::LessThan,
             TokenKind::DoubleEquals => FlatBinOpKind::CmpEquals,
             TokenKind::NotEqual => FlatBinOpKind::CmpNotEquals,
         } =>
@@ -284,24 +279,39 @@ where
     );
 
     fn call(&mut self, token: Token) -> ParseResult {
-        let callable = self.literal_id_or_recurse(token)?;
-        let Some(token) = self.lexer.next() else {
-            return Ok(callable);
-        };
-        let token = token?;
-        let TokenKind::OpenParen = &token.value else {
-            self.lexer.put_back(Ok(token));
-            return Ok(callable);
-        };
-        let args = Box::new(self.paren(token)?);
+        let mut callable = self.literal_id_or_recurse(token)?;
+        while let Some(token) = self.lexer.next() {
+            let token = token?;
+            callable = match &token.value {
+                TokenKind::OpenParen => {
+                    let args = Box::new(self.paren(token)?);
 
-        Ok(UntypedExpression {
-            span: callable.span.to(&args.span),
-            value: UntypedExpressionKind::RValue(RValueKind::Call {
-                callable: Box::new(callable),
-                args,
-            }),
-        })
+                    UntypedExpression {
+                        span: callable.span.to(&args.span),
+                        value: UntypedExpressionKind::RValue(RValueKind::Call {
+                            callable: Box::new(callable),
+                            args,
+                        }),
+                    }
+                }
+                TokenKind::OpenBracket => {
+                    let subscript = Box::new(self.bracket(token)?);
+
+                    UntypedExpression {
+                        span: callable.span.to(&subscript.span),
+                        value: UntypedExpressionKind::LValue(LValueKind::BracketExpr {
+                            left: Box::new(callable),
+                            subscript,
+                        }),
+                    }
+                }
+                _ => {
+                    self.lexer.put_back(Ok(token));
+                    return Ok(callable);
+                }
+            }
+        }
+        Ok(callable)
     }
 
     fn literal_id_or_recurse(&mut self, token: Token) -> ParseResult {
@@ -313,8 +323,21 @@ where
             TokenKind::Bool(b) => self.tag_rval(RValueKind::Bool(b), token.span),
             TokenKind::Identifier(i) => self.tag_lval(LValueKind::Variable(i), token.span),
             TokenKind::LambdaArg(i) => {
-                self.in_lambda = true;
+                if let LambdaLevel::None = self.in_lambda {
+                    self.in_lambda = LambdaLevel::Arg;
+                }
                 self.tag_rval(RValueKind::LambdaArg(i), token.span)
+            }
+            TokenKind::BackSlash => {
+                let token = self.must_next_token("lambda expression")?;
+                let save = std::mem::replace(&mut self.in_lambda, LambdaLevel::Full);
+                let expr = self.lambda(token)?;
+                self.in_lambda = LambdaLevel::None;
+                self.in_lambda = save;
+                UntypedExpression {
+                    span: expr.span.clone(),
+                    value: UntypedExpressionKind::RValue(RValueKind::Lambda(Rc::new(expr))),
+                }
             }
             TokenKind::OpenParen => self.paren(token)?,
             TokenKind::OpenBrace => self.block(token)?,
@@ -339,6 +362,27 @@ where
         Ok(UntypedExpression {
             span: open_paren_token.span.to(&span),
             value: UntypedExpressionKind::RValue(RValueKind::ParenExpr(Box::new(expr))),
+        })
+    }
+
+    fn bracket(&mut self, open_bracket_token: Token) -> ParseResult {
+        let token = self.must_next_token("expression")?;
+        let expr = self.expr(token)?;
+        let end_paren_token = self.must_next_token("`]`")?;
+        let Token {
+            span,
+            value: TokenKind::CloseBracket,
+        } = end_paren_token
+        else {
+            println!("{expr}");
+            return Err(ParseError::UnexpectedToken {
+                expected: vec![TokenKind::CloseBracket],
+                found: end_paren_token,
+            });
+        };
+        Ok(UntypedExpression {
+            span: open_bracket_token.span.to(&span),
+            value: UntypedExpressionKind::RValue(RValueKind::BracketExpr(Box::new(expr))),
         })
     }
 

@@ -15,9 +15,46 @@ pub struct Interpretter {
     lambda_args: Vec<Vec<Value>>,
 }
 
+#[derive(Error, Debug, Clone)]
+pub enum InterpretterError {
+    #[error("{0}: Cannot evaluate `{1} {2}`")]
+    ShortCircuitBinOpErrorOne(Span, Value, ShortCircuitBinOpKind),
+    #[error("{0}: Cannot evaluate `{1} {2} {3}`")]
+    ShortCircuitBinOpErrorTwo(Span, Value, ShortCircuitBinOpKind, Value),
+    #[error("{0}: Cannot evaluate `{1} {2} {3}`")]
+    FlatBinOpError(Span, Value, FlatBinOpKind, Value),
+    #[error("{0}: Cannot evaluate `{1} {2} {3}`")]
+    BinOpError(Span, Value, BinOpKind, Value),
+    #[error("{0}: Divide by zero")]
+    DivideBy0(Span),
+    #[error("{0}: Mod by zero")]
+    ModBy0(Span),
+    #[error("{0}: Cannot iterate over `{1}`")]
+    CannotIterateOver(Span, Value),
+    #[error("{0}: No variable with the name `{1}` exists")]
+    NoSuchVariable(Span, String),
+    #[error("{0}: Non boolean value `{1}` in if condition")]
+    NonBoolIfCondition(Span, Value),
+    #[error("{0}: `{1}` is not callable")]
+    NotCallable(Span, Value),
+    #[error("{0}: Reference to `\\{1}` in lambda only supplied with {2} arguments")]
+    NotEnoughArguments(Span, usize, usize),
+    #[error("{0}: Tried to index `{1}` with `{2}` but `{1}` is only of length {3}")]
+    IndexOutOfBound(Span, Value, Value, usize),
+    #[error("{0}: Cannot index {1}")]
+    CannotIndex(Span, Value),
+}
+
 pub struct ScopeTable {
     scopes: Vec<HashMap<String, Value>>,
 }
+
+#[derive(Debug, Clone)]
+enum FlowControl {
+    Error(InterpretterError),
+}
+
+type InterpretterResult = Result<Value, FlowControl>;
 
 impl ScopeTable {
     pub fn new(presets: HashMap<String, Value>) -> Self {
@@ -72,39 +109,6 @@ impl ScopeTable {
     }
 }
 
-#[derive(Error, Debug, Clone)]
-pub enum InterpretterError {
-    #[error("{0}: Cannot evaluate `{1} {2}`")]
-    ShortCircuitBinOpErrorOne(Span, Value, ShortCircuitBinOpKind),
-    #[error("{0}: Cannot evaluate `{1} {2} {3}`")]
-    ShortCircuitBinOpErrorTwo(Span, Value, ShortCircuitBinOpKind, Value),
-    #[error("{0}: Cannot evaluate `{1} {2} {3}`")]
-    FlatBinOpError(Span, Value, FlatBinOpKind, Value),
-    #[error("{0}: Cannot evaluate `{1} {2} {3}`")]
-    BinOpError(Span, Value, BinOpKind, Value),
-    #[error("{0}: Divide by zero")]
-    DivideBy0(Span),
-    #[error("{0}: Mod by zero")]
-    ModBy0(Span),
-    #[error("{0}: Cannot iterate over `{1}`")]
-    CannotIterateOver(Span, Value),
-    #[error("{0}: No variable with the name `{1}` exists")]
-    NoSuchVariable(Span, String),
-    #[error("{0}: Non boolean value `{1}` in if condition")]
-    NonBoolIfCondition(Span, Value),
-    #[error("{0}: `{1}` is not callable")]
-    NotCallable(Span, Value),
-    #[error("{0}: Reference to `\\{1}` in lambda only supplied with {2} arguments")]
-    NotEnoughArguments(Span, usize, usize),
-}
-
-#[derive(Debug, Clone)]
-enum FlowControl {
-    Error(InterpretterError),
-}
-
-type InterpretterResult = Result<Value, FlowControl>;
-
 impl Interpretter {
     // pub fn new() -> Self {
     // Self::with_vars(HashMap::new())
@@ -149,9 +153,13 @@ impl Interpretter {
                 RValueKind::Call { callable, args } => self.call(callable, args, &expr.span),
                 RValueKind::Lambda(subexpr) => Ok(Value::Lambda(subexpr.clone())),
                 RValueKind::LambdaArg(i) => self.lambda_arg(*i, &expr.span),
+                RValueKind::BracketExpr(e) => self.expr(e),
             },
             UntypedExpressionKind::LValue(l) => match l {
                 LValueKind::Variable(s) => self.variable(&expr.span, s),
+                LValueKind::BracketExpr { left, subscript } => {
+                    self.bracket(&expr.span, left, subscript)
+                }
             },
         }
     }
@@ -190,7 +198,8 @@ impl Interpretter {
             (Value::Float(l), Multiply, Value::Float(r)) => Value::Float(l * r),
             (Value::Float(l), Subtract, Value::Float(r)) => Value::Float(l - r),
 
-            (a, InvertedCall, b) => self.evaluate_call(b, vec![a], span)?,
+            (a, InvertedCall, b) => self.evaluate_call(&b, vec![a], span)?,
+            (Value::Array(a), Pipe, b) => self.pipe(&a, &b, span)?,
 
             (Value::Str(l), Add, Value::Str(r)) => Value::Str(l + &r),
             (Value::Tuple(l), Add, Value::Tuple(r)) => {
@@ -249,6 +258,12 @@ impl Interpretter {
         for (op, expr) in rest.iter() {
             let right_val = self.expr(expr)?;
             result = match (result, op, right_val) {
+                (Value::Str(l), FlatBinOpKind::CmpEquals, Value::Str(r)) => {
+                    if rest.len() > 1 {
+                        panic!("Chained comparisons not implmented yet")
+                    }
+                    Value::Bool(l == r)
+                }
                 (Value::Char(l), FlatBinOpKind::LessThanOrEqual, Value::Char(r)) => {
                     if rest.len() > 1 {
                         panic!("Chained comparisons not implmented yet")
@@ -266,6 +281,24 @@ impl Interpretter {
                         panic!("Chained comparisons not implmented yet")
                     }
                     Value::Bool(l == r)
+                }
+                (Value::Integer(l), FlatBinOpKind::GreaterThan, Value::Integer(r)) => {
+                    if rest.len() > 1 {
+                        panic!("Chained comparisons not implmented yet")
+                    }
+                    Value::Bool(l > r)
+                }
+                (Value::Integer(l), FlatBinOpKind::LessThan, Value::Integer(r)) => {
+                    if rest.len() > 1 {
+                        panic!("Chained comparisons not implmented yet")
+                    }
+                    Value::Bool(l < r)
+                }
+                (Value::Integer(l), FlatBinOpKind::LessThanOrEqual, Value::Integer(r)) => {
+                    if rest.len() > 1 {
+                        panic!("Chained comparisons not implmented yet")
+                    }
+                    Value::Bool(l <= r)
                 }
                 (Value::Tuple(mut v), FlatBinOpKind::MakeTuple, r) => {
                     v.push(r);
@@ -294,6 +327,7 @@ impl Interpretter {
         let right = self.expr(right)?;
         match left.value {
             LValueKind::Variable(ref s) => self.scopes.insert(s, right.clone()),
+            _ => todo!(),
         };
         Ok(right)
     }
@@ -319,6 +353,7 @@ impl Interpretter {
         for val in items_vec.iter() {
             match item.value {
                 LValueKind::Variable(ref s) => self.scopes.insert(s, val.clone()),
+                _ => todo!(),
             };
             self.expr(body)?;
         }
@@ -365,16 +400,16 @@ impl Interpretter {
 
     fn evaluate_call(
         &mut self,
-        callable: Value,
+        callable: &Value,
         args: Vec<Value>,
         span: &Span,
     ) -> InterpretterResult {
         match callable {
-            Value::ExternallyCallable(c) => Ok(c(args)),
+            Value::ExternallyCallable(c) => Ok(c(&args)),
             Value::Lambda(l) => {
                 self.scopes.open();
                 self.lambda_args.push(args);
-                let result = self.expr(&l);
+                let result = self.expr(l);
                 self.lambda_args
                     .pop()
                     .expect("should have popped the args we pushed");
@@ -383,7 +418,7 @@ impl Interpretter {
             }
             _ => Err(FlowControl::Error(InterpretterError::NotCallable(
                 span.clone(),
-                callable,
+                callable.clone(),
             ))),
         }
     }
@@ -399,7 +434,7 @@ impl Interpretter {
             Value::Tuple(v) => v,
             a => vec![a],
         };
-        self.evaluate_call(callable_val, args, span)
+        self.evaluate_call(&callable_val, args, span)
     }
 
     fn lambda_arg(&mut self, num: usize, span: &Span) -> InterpretterResult {
@@ -412,5 +447,55 @@ impl Interpretter {
             )));
         }
         Ok(self.lambda_args.last().unwrap()[num].clone())
+    }
+
+    fn pipe(&mut self, iterable: &[Value], callable: &Value, span: &Span) -> InterpretterResult {
+        let mut rtn = Vec::new();
+        for val in iterable {
+            rtn.push(self.evaluate_call(callable, vec![val.clone()], span)?);
+        }
+        Ok(Value::Array(rtn))
+    }
+
+    fn bracket(
+        &mut self,
+        span: &Span,
+        left: &UntypedExpression,
+        subscript: &UntypedExpression,
+    ) -> InterpretterResult {
+        let left = self.expr(left)?;
+        let subscript = self.expr(subscript)?;
+        match (&left, &subscript) {
+            (Value::Array(a), Value::Integer(i)) => {
+                if *i < 0 || *i as usize >= a.len() {
+                    let l = a.len();
+                    Err(FlowControl::Error(InterpretterError::IndexOutOfBound(
+                        span.clone(),
+                        left,
+                        subscript,
+                        l,
+                    )))
+                } else {
+                    Ok(a[*i as usize].clone())
+                }
+            }
+            (Value::Tuple(a), Value::Integer(i)) => {
+                if *i < 0 || *i as usize >= a.len() {
+                    let l = a.len();
+                    Err(FlowControl::Error(InterpretterError::IndexOutOfBound(
+                        span.clone(),
+                        left,
+                        subscript,
+                        l,
+                    )))
+                } else {
+                    Ok(a[*i as usize].clone())
+                }
+            }
+            (_, _) => Err(FlowControl::Error(InterpretterError::CannotIndex(
+                span.clone(),
+                left,
+            ))),
+        }
     }
 }

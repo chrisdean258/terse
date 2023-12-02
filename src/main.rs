@@ -9,7 +9,7 @@ mod span;
 mod token;
 mod value;
 
-fn str_replace(ipt: Vec<value::Value>) -> value::Value {
+fn str_replace(ipt: &[value::Value]) -> value::Value {
     assert_eq!(ipt.len(), 3);
     let value::Value::Str(haystack) = ipt[0].clone() else {
         panic!("wrong type")
@@ -23,7 +23,7 @@ fn str_replace(ipt: Vec<value::Value>) -> value::Value {
     value::Value::Str(haystack.replace(&needle, &replacement))
 }
 
-fn print_val(ipt: Vec<value::Value>) -> value::Value {
+fn print_val(ipt: &[value::Value]) -> value::Value {
     let mut first = true;
     for val in ipt {
         if !first {
@@ -43,6 +43,18 @@ fn read_stdin() -> value::Value {
             .map(|s| value::Value::Str(s.expect("stdin")))
             .collect(),
     )
+}
+
+fn split_str(ipt: &[value::Value]) -> value::Value {
+    assert_eq!(ipt.len(), 2);
+    let arg = ipt[0].clone();
+    let splitter = ipt[1].clone();
+    match (arg, splitter) {
+        (value::Value::Str(a), value::Value::Str(s)) => {
+            value::Value::Array(a.split(&s).map(|s| value::Value::Str(s.into())).collect())
+        }
+        (a, b) => todo!("{a} {b}"),
+    }
 }
 
 fn usage() -> ExitCode {
@@ -74,7 +86,7 @@ fn read_and_run(filename: &str) -> Result<value::Value, Box<dyn Error>> {
 fn run(program: &str) -> Result<value::Value, Box<dyn Error>> {
     let l = lexer::Lexer::new("test".to_owned(), program.chars().collect());
     // for t in l {
-    // println!("{t:?}");
+    // println!("{:?}", t?.value);
     // }
     // return Ok(value::Value::None);
     let t = parser::parse(l)?;
@@ -86,6 +98,7 @@ fn run(program: &str) -> Result<value::Value, Box<dyn Error>> {
         value::Value::ExternallyCallable(str_replace),
     );
     vars.insert("print".into(), value::Value::ExternallyCallable(print_val));
+    vars.insert("split".into(), value::Value::ExternallyCallable(split_str));
     let mut intp = interpretter::Interpretter::with_vars(vars);
     Ok(intp.interpret(&t)?)
 }

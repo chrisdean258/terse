@@ -14,7 +14,7 @@ pub enum Value {
     Bool(bool),
     Array(Vec<Value>),
     Char(char),
-    ExternallyCallable(fn(Vec<Value>) -> Value),
+    ExternallyCallable(fn(&[Value]) -> Value),
     Lazy(fn() -> Value),
     Lambda(Rc<UntypedExpression>),
 }

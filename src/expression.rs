@@ -48,6 +48,7 @@ pub enum UntypedExpressionKind {
 #[derive(Debug)]
 pub enum LValueKind {
     Variable(String),
+    BracketExpr { left: SubExpr, subscript: SubExpr },
 }
 
 #[derive(Debug)]
@@ -91,6 +92,7 @@ pub enum RValueKind {
     },
     Block(Vec<UntypedExpression>),
     ParenExpr(SubExpr),
+    BracketExpr(SubExpr),
     LambdaArg(usize),
     Lambda(Rc<UntypedExpression>),
 }
@@ -207,6 +209,7 @@ impl Display for RValueKind {
             } => write!(f, "{left} = {right}"),
             Self::ShortCircuitBinOp { left, op, right } => write!(f, "({left} {op} {right})"),
             Self::ParenExpr(e) => write!(f, "({e})"),
+            Self::BracketExpr(e) => write!(f, "[{e}]"),
             Self::FlatBinOp { first, rest } => {
                 write!(f, "{first}")?;
                 for (op, expr) in rest.iter() {
@@ -233,13 +236,13 @@ impl Display for RValueKind {
                 writeln!(f, "}}")
             }
             Self::Call { callable, args } => {
-                writeln!(f, "{callable}{args}")
+                write!(f, "{callable}{args}")
             }
             Self::LambdaArg(i) => {
-                writeln!(f, "\\{i}")
+                write!(f, "\\{i}")
             }
             Self::Lambda(e) => {
-                writeln!(f, "{e}")
+                write!(f, "\\({e})")
             }
         }
     }
@@ -255,6 +258,7 @@ impl Display for LValueKind {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
         match self {
             Self::Variable(i) => write!(f, "{i}"),
+            Self::BracketExpr { left, subscript } => write!(f, "{left}{subscript}"),
         }
     }
 }
