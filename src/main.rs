@@ -2,6 +2,7 @@ use std::{collections::HashMap, env, error::Error, io::stdin};
 mod expression;
 mod interpretter;
 mod lexer;
+mod nonempty_vec;
 mod parser;
 mod span;
 mod token;

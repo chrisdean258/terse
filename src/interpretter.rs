@@ -3,6 +3,7 @@ use crate::{
         AssignmentKind, BinOpKind, FlatBinOpKind, LValueKind, RValueKind, ShortCircuitBinOpKind,
         UntypedExpression, UntypedExpressionKind, UntypedLValue,
     },
+    nonempty_vec::NonEmptyVec,
     parser::Ast,
     span::Span,
     value::Value,
@@ -11,7 +12,47 @@ use std::collections::HashMap;
 use thiserror::Error;
 
 pub struct Interpretter {
-    variables: HashMap<String, Value>,
+    scopes: ScopeTable,
+}
+
+pub struct ScopeTable {
+    scopes: NonEmptyVec<HashMap<String, Value>>,
+}
+
+impl ScopeTable {
+    pub fn new(presets: HashMap<String, Value>) -> Self {
+        Self {
+            scopes: NonEmptyVec::new(presets),
+        }
+    }
+    pub fn insert(&mut self, key: &str, val: Value) {
+        match self.get_mut(key) {
+            Some(v) => {
+                *v = val;
+            }
+            None => {
+                self.scopes.last_mut().insert(key.into(), val);
+            }
+        }
+    }
+
+    pub fn get(&self, key: &str) -> Option<&Value> {
+        for scope in self.scopes.iter().rev() {
+            if let Some(v) = scope.get(key) {
+                return Some(v);
+            }
+        }
+        None
+    }
+
+    pub fn get_mut(&mut self, key: &str) -> Option<&mut Value> {
+        for scope in self.scopes.iter_mut().rev() {
+            if let Some(v) = scope.get_mut(key) {
+                return Some(v);
+            }
+        }
+        None
+    }
 }
 
 #[derive(Error, Debug, Clone)]
@@ -50,8 +91,10 @@ impl Interpretter {
     // Self::with_vars(HashMap::new())
     // }
 
-    pub fn with_vars(variables: HashMap<String, Value>) -> Self {
-        Self { variables }
+    pub fn with_vars(presets: HashMap<String, Value>) -> Self {
+        Self {
+            scopes: ScopeTable::new(presets),
+        }
     }
 
     pub fn interpret(&mut self, ast: &Ast) -> Result<Value, InterpretterError> {
@@ -218,14 +261,6 @@ impl Interpretter {
         Ok(result)
     }
 
-    fn scope_insert(&mut self, key: &str, val: Value) {
-        if let Some(v) = self.variables.get_mut(key) {
-            *v = val;
-            return;
-        }
-        self.variables.insert(key.into(), val);
-    }
-
     fn assignment(
         &mut self,
         left: &UntypedLValue,
@@ -234,7 +269,7 @@ impl Interpretter {
     ) -> InterpretterResult {
         let right = self.expr(right)?;
         match left.value {
-            LValueKind::Variable(ref s) => self.scope_insert(s, right.clone()),
+            LValueKind::Variable(ref s) => self.scopes.insert(s, right.clone()),
         };
         Ok(right)
     }
@@ -259,7 +294,7 @@ impl Interpretter {
         };
         for val in items_vec.iter() {
             match item.value {
-                LValueKind::Variable(ref s) => self.scope_insert(s, val.clone()),
+                LValueKind::Variable(ref s) => self.scopes.insert(s, val.clone()),
             };
             self.expr(body)?;
         }
@@ -288,7 +323,7 @@ impl Interpretter {
     }
 
     fn variable(&mut self, span: &Span, name: &str) -> InterpretterResult {
-        self.variables.get(name).cloned().ok_or_else(|| {
+        self.scopes.get(name).cloned().ok_or_else(|| {
             FlowControl::Error(InterpretterError::NoSuchVariable(
                 span.clone(),
                 name.to_owned(),
