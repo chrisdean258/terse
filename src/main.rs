@@ -1,4 +1,6 @@
-use std::{collections::HashMap, env, error::Error, io::stdin};
+use std::{
+    collections::HashMap, env, error::Error, fs::read_to_string, io::stdin, process::ExitCode,
+};
 mod expression;
 mod interpretter;
 mod lexer;
@@ -30,30 +32,57 @@ fn print_val(ipt: Vec<value::Value>) -> value::Value {
     value::Value::None
 }
 
-fn main() {
+fn read_stdin() -> value::Value {
+    value::Value::Array(
+        stdin()
+            .lines()
+            .map(|s| value::Value::Str(s.expect("stdin")))
+            .collect(),
+    )
+}
+
+fn usage() -> ExitCode {
+    eprintln!("Usage: terse <program_file>");
+    ExitCode::FAILURE
+}
+
+fn main() -> ExitCode {
     let mut args = env::args();
     let _program = args.next().expect("no program name");
-    let test = args.next().unwrap_or("true && \"test\"".into());
-    match run(&test) {
-        Ok(v) => println!("{v}"),
-        Err(e) => println!("{e}"),
+    let program_file = match args.next() {
+        Some(a) => a,
+        None => return usage(),
+    };
+    match read_and_run(&program_file) {
+        Ok(v) => {
+            println!("{v}");
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            println!("{e}");
+            ExitCode::FAILURE
+        }
     }
 }
 
-fn run(test: &str) -> Result<value::Value, Box<dyn Error>> {
-    let l = lexer::Lexer::new("test".to_owned(), test.chars().collect());
+fn read_and_run(filename: &str) -> Result<value::Value, Box<dyn Error>> {
+    let contents = read_to_string(filename)?;
+    run(&contents)
+}
+
+fn run(program: &str) -> Result<value::Value, Box<dyn Error>> {
+    let l = lexer::Lexer::new("test".to_owned(), program.chars().collect());
     // for t in l {
     // println!("{t:?}");
     // }
     // return Ok(value::Value::None);
     let t = parser::parse(l)?;
     // eprintln!("{t}");
-    let stdinlines = stdin()
-        .lines()
-        .map(|s| value::Value::Str(s.expect("stdin")))
-        .collect();
     let mut vars = HashMap::new();
-    vars.insert("stdin".into(), value::Value::Array(stdinlines));
+    vars.insert(
+        "stdin".into(),
+        value::Value::Lazy(value::Lazy::new(Box::new(read_stdin))),
+    );
     vars.insert("replace".into(), value::Value::Callable(str_replace));
     vars.insert("print".into(), value::Value::Callable(print_val));
     let mut intp = interpretter::Interpretter::with_vars(vars);

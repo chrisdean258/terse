@@ -1,4 +1,5 @@
-use std::fmt::{Display, Formatter};
+use std::fmt::{Debug, Display, Formatter};
+
 #[derive(Clone, Debug)]
 pub enum Value {
     None,
@@ -10,6 +11,7 @@ pub enum Value {
     Array(Vec<Value>),
     Char(char),
     Callable(fn(Vec<Value>) -> Value),
+    Lazy(fn() -> Value),
 }
 
 impl Display for Value {
@@ -48,6 +50,7 @@ impl Display for Value {
                 write!(f, "]")
             }
             Self::Callable(c) => write!(f, "{c:?}"),
+            Self::Lazy(v) => write!(f, "{v:?}"),
         }
     }
 }

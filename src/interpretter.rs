@@ -36,9 +36,12 @@ impl ScopeTable {
         }
     }
 
-    pub fn get(&self, key: &str) -> Option<&Value> {
-        for scope in self.scopes.iter().rev() {
-            if let Some(v) = scope.get(key) {
+    pub fn get(&mut self, key: &str) -> Option<&Value> {
+        for scope in self.scopes.iter_mut().rev() {
+            if let Some(v) = scope.get_mut(key) {
+                if let Value::Lazy(l) = v {
+                    *v = l();
+                }
                 return Some(v);
             }
         }
