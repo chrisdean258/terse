@@ -17,7 +17,7 @@ pub struct UntypedLValue {
 }
 
 impl UntypedExpression {
-    pub fn to_lval(self) -> Result<UntypedLValue, Self> {
+    pub fn into_lval(self) -> Result<UntypedLValue, Self> {
         let UntypedExpressionKind::LValue(value) = self.value else {
             return Err(self);
         };
@@ -26,16 +26,11 @@ impl UntypedExpression {
             span: self.span,
         })
     }
-}
 
-// impl UntypedLValue {
-// pub fn to_untyped_expression(self) -> UntypedExpression {
-// UntypedExpression {
-// value: UntypedExpressionKind::LValue(self.value),
-// span: self.span,
-// }
-// }
-// }
+    pub fn is_lval(&self) -> bool {
+        matches!(self.value, UntypedExpressionKind::LValue(_))
+    }
+}
 
 type SubExpr = Box<UntypedExpression>;
 
@@ -49,6 +44,7 @@ pub enum UntypedExpressionKind {
 pub enum LValueKind {
     Variable(String),
     BracketExpr { left: SubExpr, subscript: SubExpr },
+    Tuple(Vec<UntypedLValue>),
 }
 
 #[derive(Debug)]
@@ -72,6 +68,7 @@ pub enum RValueKind {
         first: SubExpr,
         rest: Vec<(FlatBinOpKind, SubExpr)>,
     },
+    Tuple(Vec<UntypedExpression>),
     ShortCircuitBinOp {
         left: SubExpr,
         op: ShortCircuitBinOpKind,
@@ -126,7 +123,6 @@ pub enum FlatBinOpKind {
     LessThanOrEqual,
     CmpEquals,
     CmpNotEquals,
-    MakeTuple,
 }
 
 #[derive(Clone, Debug, Copy, PartialEq, Eq)]
@@ -172,7 +168,6 @@ impl Display for FlatBinOpKind {
                 Self::LessThanOrEqual => "<=",
                 Self::CmpEquals => "==",
                 Self::CmpNotEquals => "!=",
-                Self::MakeTuple => ",",
             }
         )
     }
@@ -213,14 +208,17 @@ impl Display for RValueKind {
             Self::FlatBinOp { first, rest } => {
                 write!(f, "{first}")?;
                 for (op, expr) in rest.iter() {
-                    let spc = if *op == FlatBinOpKind::MakeTuple {
-                        ""
-                    } else {
-                        " "
-                    };
-                    write!(f, "{spc}{op} {expr}")?;
+                    write!(f, " {op} {expr}")?;
                 }
                 Ok(())
+            }
+            Self::Tuple(vals) => {
+                let mut first = true;
+                for val in vals {
+                    write!(f, "{}{val}", if first { "(" } else { ", " })?;
+                    first = false;
+                }
+                write!(f, ")")
             }
             Self::For { item, items, body } => {
                 writeln!(f, "for {item} in {items}\n{body}")
@@ -259,6 +257,14 @@ impl Display for LValueKind {
         match self {
             Self::Variable(i) => write!(f, "{i}"),
             Self::BracketExpr { left, subscript } => write!(f, "{left}{subscript}"),
+            Self::Tuple(vals) => {
+                let mut first = true;
+                for val in vals {
+                    write!(f, "{}{val}", if first { "(" } else { ", " })?;
+                    first = false;
+                }
+                write!(f, ")")
+            }
         }
     }
 }

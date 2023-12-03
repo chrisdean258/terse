@@ -50,7 +50,7 @@ impl Display for Value {
                     } else {
                         write!(f, ", ")?;
                     }
-                    write!(f, "{value}")?
+                    write!(f, "{value:?}")?
                 }
                 write!(f, "]")
             }

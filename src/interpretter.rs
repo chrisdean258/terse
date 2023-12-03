@@ -43,6 +43,8 @@ pub enum InterpretterError {
     IndexOutOfBound(Span, Value, Value, usize),
     #[error("{0}: Cannot index {1}")]
     CannotIndex(Span, Value),
+    #[error("{0}: Cannot assign `{2}` into {1} values")]
+    AssignmentLengthMismatch(Span, usize, Value),
 }
 
 pub struct ScopeTable {
@@ -146,7 +148,9 @@ impl Interpretter {
                     self.short_circuit_binop(&expr.span, left, op, right)
                 }
                 RValueKind::ParenExpr(expr) => self.expr(expr.as_ref()),
-                RValueKind::Assignment { left, op, right } => self.assignment(left, op, right),
+                RValueKind::Assignment { left, op, right } => {
+                    self.assignment(left, op, right, &expr.span)
+                }
                 RValueKind::For { item, items, body } => self.for_(item, items, body),
                 RValueKind::If { condition, body } => self.if_(condition, body),
                 RValueKind::Block(exprs) => self.block(exprs),
@@ -154,13 +158,17 @@ impl Interpretter {
                 RValueKind::Lambda(subexpr) => Ok(Value::Lambda(subexpr.clone())),
                 RValueKind::LambdaArg(i) => self.lambda_arg(*i, &expr.span),
                 RValueKind::BracketExpr(e) => self.expr(e),
+                RValueKind::Tuple(t) => self.rtuple(t),
             },
-            UntypedExpressionKind::LValue(l) => match l {
-                LValueKind::Variable(s) => self.variable(&expr.span, s),
-                LValueKind::BracketExpr { left, subscript } => {
-                    self.bracket(&expr.span, left, subscript)
-                }
-            },
+            UntypedExpressionKind::LValue(l) => self.lval(l, &expr.span),
+        }
+    }
+
+    fn lval(&mut self, expr: &LValueKind, span: &Span) -> InterpretterResult {
+        match expr {
+            LValueKind::Variable(s) => self.variable(span, s),
+            LValueKind::BracketExpr { left, subscript } => self.bracket(span, left, subscript),
+            LValueKind::Tuple(t) => self.ltuple(t),
         }
     }
 
@@ -259,6 +267,10 @@ impl Interpretter {
                 let b = self.expr(right)?;
                 self.pipe(a, &b, span)?
             }
+            (Value::Str(s), Pipe) => {
+                let b = self.expr(right)?;
+                self.pipe(&s.chars().map(Value::Char).collect::<Vec<_>>(), &b, span)?
+            }
             (_, op) => {
                 return Err(FlowControl::Error(
                     InterpretterError::ShortCircuitBinOpErrorOne(span.clone(), left_val, *op),
@@ -320,11 +332,6 @@ impl Interpretter {
                     }
                     Value::Bool(l <= r)
                 }
-                (Value::Tuple(mut v), FlatBinOpKind::MakeTuple, r) => {
-                    v.push(r);
-                    Value::Tuple(v)
-                }
-                (l, FlatBinOpKind::MakeTuple, r) => Value::Tuple(vec![l, r]),
                 (l, op, r) => {
                     return Err(FlowControl::Error(InterpretterError::FlatBinOpError(
                         span.clone(),
@@ -343,10 +350,35 @@ impl Interpretter {
         left: &UntypedLValue,
         _op: &AssignmentKind,
         right: &UntypedExpression,
+        span: &Span,
     ) -> InterpretterResult {
         let right = self.expr(right)?;
-        match left.value {
-            LValueKind::Variable(ref s) => self.scopes.insert(s, right.clone()),
+        self.assignment_one(left, _op, right, span)
+    }
+
+    fn assignment_one(
+        &mut self,
+        left: &UntypedLValue,
+        _op: &AssignmentKind,
+        right: Value,
+        span: &Span,
+    ) -> InterpretterResult {
+        match (&left.value, right.clone()) {
+            (LValueKind::Variable(ref s), right) => self.scopes.insert(s, right.clone()),
+            (LValueKind::Tuple(lvals), Value::Tuple(t) | Value::Array(t)) => {
+                if lvals.len() != t.len() {
+                    return Err(FlowControl::Error(
+                        InterpretterError::AssignmentLengthMismatch(
+                            span.clone(),
+                            lvals.len(),
+                            right,
+                        ),
+                    ));
+                }
+                for (l, r) in lvals.iter().zip(t) {
+                    self.assignment_one(l, _op, r, span)?;
+                }
+            }
             _ => todo!(),
         };
         Ok(right)
@@ -517,5 +549,23 @@ impl Interpretter {
                 left,
             ))),
         }
+    }
+
+    fn rtuple(&mut self, values: &[UntypedExpression]) -> InterpretterResult {
+        Ok(Value::Tuple(
+            values
+                .iter()
+                .map(|v| self.expr(v))
+                .collect::<Result<Vec<_>, _>>()?,
+        ))
+    }
+
+    fn ltuple(&mut self, values: &[UntypedLValue]) -> InterpretterResult {
+        Ok(Value::Tuple(
+            values
+                .iter()
+                .map(|v| self.lval(&v.value, &v.span))
+                .collect::<Result<Vec<_>, _>>()?,
+        ))
     }
 }

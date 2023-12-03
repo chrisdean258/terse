@@ -110,10 +110,7 @@ macro_rules! binops {
         fn $name(&mut self, token: Token) -> ParseResult {
             let first = self.$next(token)?;
             let mut rest = Vec::new();
-            loop {
-                let Some(sep) = self.lexer.next() else {
-                    break;
-                };
+            while let Some(sep) = self.lexer.next() {
                 let sep = sep?;
                 let op = match &sep.value {
                     $($tok => $result),+,
@@ -185,7 +182,7 @@ where
     }
 
     fn lval(&mut self, token: Token) -> Result<UntypedLValue, ParseError> {
-        match self.expr(token)?.to_lval() {
+        match self.expr(token)?.into_lval() {
             Ok(l) => Ok(l),
             Err(e) => Err(ParseError::NotAnLValue(e)),
         }
@@ -204,7 +201,7 @@ where
                 return Ok(left);
             }
         };
-        let left = match left.to_lval() {
+        let left = match left.into_lval() {
             Ok(l) => l,
             Err(left) => return Err(ParseError::NotAnLValue(left)),
         };
@@ -219,11 +216,45 @@ where
         Ok(rtn)
     }
 
-    binops!(
-        comma #flatten {
-            TokenKind::Comma => FlatBinOpKind::MakeTuple,
-        } =>
+    fn comma(&mut self, token: Token) -> ParseResult {
+        let mut exprs = vec![self.pipe(token)?];
+        let mut force_tuple = false;
+        while let Some(sep) = self.lexer.next() {
+            let sep = sep?;
+            let TokenKind::Comma = &sep.value else {
+                self.lexer.put_back(Ok(sep));
+                break;
+            };
+            // allow single trailing comma
+            let Some(token) = self.lexer.next() else {
+                break;
+            };
+            force_tuple = true;
+            exprs.push(self.pipe(token?)?);
+        }
+        if exprs.len() == 1 && !force_tuple {
+            return Ok(exprs.pop().unwrap());
+        }
+        Ok(if exprs.iter().all(|v| v.is_lval()) {
+            let exprs = exprs
+                .into_iter()
+                .map(|v| v.into_lval())
+                .collect::<Result<Vec<_>, _>>()
+                .expect("Something we promosed could be an lval could not be an lval");
+            UntypedExpression {
+                span: exprs.first().unwrap().span.to(&exprs.last().unwrap().span),
+                value: UntypedExpressionKind::LValue(LValueKind::Tuple(exprs)),
+            }
+        } else {
+            eprintln!("{exprs:#?}");
+            UntypedExpression {
+                span: exprs.first().unwrap().span.to(&exprs.last().unwrap().span),
+                value: UntypedExpressionKind::RValue(RValueKind::Tuple(exprs)),
+            }
+        })
+    }
 
+    binops!(
         pipe #short_circuit {
             TokenKind::PipeArrow => ShortCircuitBinOpKind::Pipe,
             TokenKind::SkinnyArrow => ShortCircuitBinOpKind::InvertedCall,
