@@ -330,6 +330,8 @@ impl Lexer {
                 "for" => TokenKind::For,
                 "in" => TokenKind::In,
                 "if" => TokenKind::If,
+                "while" => TokenKind::While,
+                "fn" => TokenKind::Function,
                 _ => TokenKind::Identifier(id),
             },
         })

@@ -26,10 +26,6 @@ impl UntypedExpression {
             span: self.span,
         })
     }
-
-    pub fn is_lval(&self) -> bool {
-        matches!(self.value, UntypedExpressionKind::LValue(_))
-    }
 }
 
 type SubExpr = Box<UntypedExpression>;
@@ -44,7 +40,7 @@ pub enum UntypedExpressionKind {
 pub enum LValueKind {
     Variable(String),
     BracketExpr { left: SubExpr, subscript: SubExpr },
-    Tuple(Vec<UntypedLValue>),
+    Tuple(Vec<UntypedExpression>),
 }
 
 #[derive(Debug)]
@@ -68,7 +64,6 @@ pub enum RValueKind {
         first: SubExpr,
         rest: Vec<(FlatBinOpKind, SubExpr)>,
     },
-    Tuple(Vec<UntypedExpression>),
     ShortCircuitBinOp {
         left: SubExpr,
         op: ShortCircuitBinOpKind,
@@ -88,7 +83,6 @@ pub enum RValueKind {
         args: SubExpr,
     },
     Block(Vec<UntypedExpression>),
-    ParenExpr(SubExpr),
     BracketExpr(SubExpr),
     LambdaArg(usize),
     Lambda(Rc<UntypedExpression>),
@@ -203,7 +197,6 @@ impl Display for RValueKind {
                 right,
             } => write!(f, "{left} = {right}"),
             Self::ShortCircuitBinOp { left, op, right } => write!(f, "({left} {op} {right})"),
-            Self::ParenExpr(e) => write!(f, "({e})"),
             Self::BracketExpr(e) => write!(f, "[{e}]"),
             Self::FlatBinOp { first, rest } => {
                 write!(f, "{first}")?;
@@ -211,14 +204,6 @@ impl Display for RValueKind {
                     write!(f, " {op} {expr}")?;
                 }
                 Ok(())
-            }
-            Self::Tuple(vals) => {
-                let mut first = true;
-                for val in vals {
-                    write!(f, "{}{val}", if first { "(" } else { ", " })?;
-                    first = false;
-                }
-                write!(f, ")")
             }
             Self::For { item, items, body } => {
                 writeln!(f, "for {item} in {items}\n{body}")

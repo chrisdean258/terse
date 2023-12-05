@@ -235,22 +235,10 @@ where
         if exprs.len() == 1 && !force_tuple {
             return Ok(exprs.pop().unwrap());
         }
-        Ok(if exprs.iter().all(|v| v.is_lval()) {
-            let exprs = exprs
-                .into_iter()
-                .map(|v| v.into_lval())
-                .collect::<Result<Vec<_>, _>>()
-                .expect("Something we promosed could be an lval could not be an lval");
-            UntypedExpression {
-                span: exprs.first().unwrap().span.to(&exprs.last().unwrap().span),
-                value: UntypedExpressionKind::LValue(LValueKind::Tuple(exprs)),
-            }
-        } else {
-            eprintln!("{exprs:#?}");
-            UntypedExpression {
-                span: exprs.first().unwrap().span.to(&exprs.last().unwrap().span),
-                value: UntypedExpressionKind::RValue(RValueKind::Tuple(exprs)),
-            }
+
+        Ok(UntypedExpression {
+            span: exprs.first().unwrap().span.to(&exprs.last().unwrap().span),
+            value: UntypedExpressionKind::LValue(LValueKind::Tuple(exprs)),
         })
     }
 
@@ -372,13 +360,18 @@ where
             }
             TokenKind::OpenParen => self.paren(token)?,
             TokenKind::OpenBrace => self.block(token)?,
+            TokenKind::Function => self.function(token)?,
             a => todo!("{}:{a:?}", token.span),
         })
     }
 
+    fn function(&mut self, _token: Token) -> ParseResult {
+        todo!()
+    }
+
     fn paren(&mut self, open_paren_token: Token) -> ParseResult {
         let token = self.must_next_token("expression")?;
-        let expr = self.expr(token)?;
+        let mut expr = self.expr(token)?;
         let end_paren_token = self.must_next_token("`)`")?;
         let Token {
             span,
@@ -390,10 +383,8 @@ where
                 found: end_paren_token,
             });
         };
-        Ok(UntypedExpression {
-            span: open_paren_token.span.to(&span),
-            value: UntypedExpressionKind::RValue(RValueKind::ParenExpr(Box::new(expr))),
-        })
+        expr.span = open_paren_token.span.to(&span);
+        Ok(expr)
     }
 
     fn bracket(&mut self, open_bracket_token: Token) -> ParseResult {

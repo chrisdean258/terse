@@ -45,6 +45,9 @@ pub enum InterpretterError {
     CannotIndex(Span, Value),
     #[error("{0}: Cannot assign `{2}` into {1} values")]
     AssignmentLengthMismatch(Span, usize, Value),
+    //TODO: make this error message better
+    #[error("{0}: Cannot assign into expression")]
+    CannotAssign(Span),
 }
 
 pub struct ScopeTable {
@@ -147,7 +150,6 @@ impl Interpretter {
                 RValueKind::ShortCircuitBinOp { left, op, right } => {
                     self.short_circuit_binop(&expr.span, left, op, right)
                 }
-                RValueKind::ParenExpr(expr) => self.expr(expr.as_ref()),
                 RValueKind::Assignment { left, op, right } => {
                     self.assignment(left, op, right, &expr.span)
                 }
@@ -158,7 +160,6 @@ impl Interpretter {
                 RValueKind::Lambda(subexpr) => Ok(Value::Lambda(subexpr.clone())),
                 RValueKind::LambdaArg(i) => self.lambda_arg(*i, &expr.span),
                 RValueKind::BracketExpr(e) => self.expr(e),
-                RValueKind::Tuple(t) => self.rtuple(t),
             },
             UntypedExpressionKind::LValue(l) => self.lval(l, &expr.span),
         }
@@ -168,7 +169,7 @@ impl Interpretter {
         match expr {
             LValueKind::Variable(s) => self.variable(span, s),
             LValueKind::BracketExpr { left, subscript } => self.bracket(span, left, subscript),
-            LValueKind::Tuple(t) => self.ltuple(t),
+            LValueKind::Tuple(t) => self.tuple(t),
         }
     }
 
@@ -353,17 +354,32 @@ impl Interpretter {
         span: &Span,
     ) -> InterpretterResult {
         let right = self.expr(right)?;
-        self.assignment_one(left, _op, right, span)
+        self.assignment_one(&left.value, _op, right, span)
+    }
+
+    fn try_assignment(
+        &mut self,
+        left: &UntypedExpression,
+        op: &AssignmentKind,
+        right: Value,
+        span: &Span,
+    ) -> InterpretterResult {
+        match &left.value {
+            UntypedExpressionKind::RValue(_) => Err(FlowControl::Error(
+                InterpretterError::CannotAssign(span.clone()),
+            )),
+            UntypedExpressionKind::LValue(l) => self.assignment_one(l, op, right, span),
+        }
     }
 
     fn assignment_one(
         &mut self,
-        left: &UntypedLValue,
+        left: &LValueKind,
         _op: &AssignmentKind,
         right: Value,
         span: &Span,
     ) -> InterpretterResult {
-        match (&left.value, right.clone()) {
+        match (left, right.clone()) {
             (LValueKind::Variable(ref s), right) => self.scopes.insert(s, right.clone()),
             (LValueKind::Tuple(lvals), Value::Tuple(t) | Value::Array(t)) => {
                 if lvals.len() != t.len() {
@@ -376,7 +392,7 @@ impl Interpretter {
                     ));
                 }
                 for (l, r) in lvals.iter().zip(t) {
-                    self.assignment_one(l, _op, r, span)?;
+                    self.try_assignment(l, _op, r, span)?;
                 }
             }
             _ => todo!(),
@@ -551,20 +567,11 @@ impl Interpretter {
         }
     }
 
-    fn rtuple(&mut self, values: &[UntypedExpression]) -> InterpretterResult {
+    fn tuple(&mut self, values: &[UntypedExpression]) -> InterpretterResult {
         Ok(Value::Tuple(
             values
                 .iter()
                 .map(|v| self.expr(v))
-                .collect::<Result<Vec<_>, _>>()?,
-        ))
-    }
-
-    fn ltuple(&mut self, values: &[UntypedLValue]) -> InterpretterResult {
-        Ok(Value::Tuple(
-            values
-                .iter()
-                .map(|v| self.lval(&v.value, &v.span))
                 .collect::<Result<Vec<_>, _>>()?,
         ))
     }

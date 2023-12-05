@@ -1,0 +1,9 @@
+is_symbol = \{ \0 != '.' && (\0 < '0' || \0 > '9') }
+to_arr = \{\0 |> \(\0)}
+
+remove_non_touchers = \{
+	for row in \0 1
+}
+
+a = stdin |> to_arr
+
