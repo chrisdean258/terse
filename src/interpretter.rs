@@ -395,6 +395,9 @@ impl Interpretter {
                     self.try_assignment(l, _op, r, span)?;
                 }
             }
+            (LValueKind::BracketExpr { left, subscript }, val) => {
+                todo!("Array assignment {left}{subscript} = {val}");
+            }
             _ => todo!(),
         };
         Ok(right)
