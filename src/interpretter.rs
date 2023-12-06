@@ -3,6 +3,7 @@ use crate::{
         AssignmentKind, BinOpKind, FlatBinOpKind, LValueKind, RValueKind, ShortCircuitBinOpKind,
         UntypedExpression, UntypedExpressionKind, UntypedLValue,
     },
+    intrinsics::intrinsics,
     parser::Ast,
     span::Span,
     value::Value,
@@ -115,9 +116,9 @@ impl ScopeTable {
 }
 
 impl Interpretter {
-    // pub fn new() -> Self {
-    // Self::with_vars(HashMap::new())
-    // }
+    pub fn new() -> Self {
+        Self::with_vars(intrinsics())
+    }
 
     pub fn with_vars(presets: HashMap<String, Value>) -> Self {
         Self {
@@ -485,7 +486,7 @@ impl Interpretter {
         span: &Span,
     ) -> InterpretterResult {
         match callable {
-            Value::ExternallyCallable(c) => Ok(c(&args)),
+            Value::ExternalFunc(c) => Ok(c(&args)),
             Value::Lambda(l) => {
                 self.scopes.open();
                 self.lambda_args.push(args);

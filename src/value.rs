@@ -14,7 +14,7 @@ pub enum Value {
     Bool(bool),
     Array(Vec<Value>),
     Char(char),
-    ExternallyCallable(fn(&[Value]) -> Value),
+    ExternalFunc(fn(&[Value]) -> Value),
     Lazy(fn() -> Value),
     Lambda(Rc<UntypedExpression>),
 }
@@ -54,7 +54,7 @@ impl Display for Value {
                 }
                 write!(f, "]")
             }
-            Self::ExternallyCallable(c) => write!(f, "{c:?}"),
+            Self::ExternalFunc(c) => write!(f, "{c:?}"),
             Self::Lazy(v) => write!(f, "{v:?}"),
             Self::Lambda(l) => write!(f, "{l}"),
         }

@@ -1,61 +1,12 @@
-use std::{
-    collections::HashMap, env, error::Error, fs::read_to_string, io::stdin, process::ExitCode,
-};
+use std::{env, error::Error, fs::read_to_string, process::ExitCode};
 mod expression;
 mod interpretter;
+mod intrinsics;
 mod lexer;
 mod parser;
 mod span;
 mod token;
 mod value;
-
-fn str_replace(ipt: &[value::Value]) -> value::Value {
-    assert_eq!(ipt.len(), 3);
-    let value::Value::Str(haystack) = ipt[0].clone() else {
-        panic!("wrong type")
-    };
-    let value::Value::Str(needle) = ipt[1].clone() else {
-        panic!("wrong type")
-    };
-    let value::Value::Str(replacement) = ipt[2].clone() else {
-        panic!("wrong type")
-    };
-    value::Value::Str(haystack.replace(&needle, &replacement))
-}
-
-fn print_val(ipt: &[value::Value]) -> value::Value {
-    let mut first = true;
-    for val in ipt {
-        if !first {
-            print!(" ");
-        }
-        first = false;
-        print!("{val}");
-    }
-    println!();
-    value::Value::None
-}
-
-fn read_stdin() -> value::Value {
-    value::Value::Array(
-        stdin()
-            .lines()
-            .map(|s| value::Value::Str(s.expect("stdin")))
-            .collect(),
-    )
-}
-
-fn split_str(ipt: &[value::Value]) -> value::Value {
-    assert_eq!(ipt.len(), 2);
-    let arg = ipt[0].clone();
-    let splitter = ipt[1].clone();
-    match (arg, splitter) {
-        (value::Value::Str(a), value::Value::Str(s)) => {
-            value::Value::Array(a.split(&s).map(|s| value::Value::Str(s.into())).collect())
-        }
-        (a, b) => todo!("{a} {b}"),
-    }
-}
 
 fn usage() -> ExitCode {
     eprintln!("Usage: terse <program_file>");
@@ -80,25 +31,22 @@ fn main() -> ExitCode {
 
 fn read_and_run(filename: &str) -> Result<value::Value, Box<dyn Error>> {
     let contents = read_to_string(filename)?;
-    run(&contents)
+    run(filename, &contents)
 }
 
-fn run(program: &str) -> Result<value::Value, Box<dyn Error>> {
-    let l = lexer::Lexer::new("test".to_owned(), program.chars().collect());
+fn run(name: &str, program: &str) -> Result<value::Value, Box<dyn Error>> {
+    let stdlib = read_to_string(env::var("HOME")? + "/git/terse/stdlib/stdlib.trs")?;
+    let l = lexer::Lexer::new("stdlib".to_owned(), stdlib.chars().collect());
+    let t = parser::parse(l)?;
+    let mut intp = interpretter::Interpretter::new();
+    intp.interpret(&t)?;
+
+    let l = lexer::Lexer::new(name.to_owned(), program.chars().collect());
     // for t in l {
     // println!("{:?}", t?.value);
     // }
     // return Ok(value::Value::None);
     let t = parser::parse(l)?;
     // eprintln!("{t:#?}");
-    let mut vars = HashMap::new();
-    vars.insert("stdin".into(), value::Value::Lazy(read_stdin));
-    vars.insert(
-        "replace".into(),
-        value::Value::ExternallyCallable(str_replace),
-    );
-    vars.insert("print".into(), value::Value::ExternallyCallable(print_val));
-    vars.insert("split".into(), value::Value::ExternallyCallable(split_str));
-    let mut intp = interpretter::Interpretter::with_vars(vars);
     Ok(intp.interpret(&t)?)
 }
