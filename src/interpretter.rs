@@ -245,32 +245,10 @@ impl Interpretter {
                     }
                 }
             }
-            (_a, InvertedCall) => {
-                let mut args: Vec<Value> = vec![left_val];
-                let b = if let UntypedExpressionKind::RValue(RValueKind::Call {
-                    callable,
-                    args: int_args,
-                }) = &right.value
-                {
-                    let callable = self.expr(callable)?;
-                    let internal = self.expr(int_args)?;
-                    match internal {
-                        Value::Tuple(mut a) => args.append(&mut a),
-                        a => args.push(a),
-                    }
-                    callable
-                } else {
-                    self.expr(right)?
-                };
-                self.evaluate_call(&b, args, span)?
-            }
-            (Value::Array(a), Pipe) => {
-                let b = self.expr(right)?;
-                self.pipe(a, &b, span)?
-            }
+            (_a, InvertedCall) => self.invert_call_or_call(left_val, right, span)?,
+            (Value::Array(a), Pipe) => self.pipe(a, right, span)?,
             (Value::Str(s), Pipe) => {
-                let b = self.expr(right)?;
-                self.pipe(&s.chars().map(Value::Char).collect::<Vec<_>>(), &b, span)?
+                self.pipe(&s.chars().map(Value::Char).collect::<Vec<_>>(), right, span)?
             }
             (_, op) => {
                 return Err(FlowControl::Error(
@@ -279,6 +257,31 @@ impl Interpretter {
             }
         };
         Ok(val)
+    }
+
+    fn invert_call_or_call(
+        &mut self,
+        left: Value,
+        right: &UntypedExpression,
+        span: &Span,
+    ) -> InterpretterResult {
+        let mut args: Vec<Value> = vec![left];
+        let b = if let UntypedExpressionKind::RValue(RValueKind::Call {
+            callable,
+            args: int_args,
+        }) = &right.value
+        {
+            let callable = self.expr(callable)?;
+            let internal = self.expr(int_args)?;
+            match internal {
+                Value::Tuple(mut a) => args.append(&mut a),
+                a => args.push(a),
+            }
+            callable
+        } else {
+            self.expr(right)?
+        };
+        self.evaluate_call(&b, args, span)
     }
 
     fn flat_binop(
@@ -296,6 +299,12 @@ impl Interpretter {
                         panic!("Chained comparisons not implmented yet")
                     }
                     Value::Bool(l == r)
+                }
+                (Value::Str(l), FlatBinOpKind::CmpNotEquals, Value::Str(r)) => {
+                    if rest.len() > 1 {
+                        panic!("Chained comparisons not implmented yet")
+                    }
+                    Value::Bool(l != r)
                 }
                 (Value::Char(l), FlatBinOpKind::LessThanOrEqual, Value::Char(r)) => {
                     if rest.len() > 1 {
@@ -520,10 +529,19 @@ impl Interpretter {
         Ok(self.lambda_args.last().unwrap()[num].clone())
     }
 
-    fn pipe(&mut self, iterable: &[Value], callable: &Value, span: &Span) -> InterpretterResult {
+    fn pipe(
+        &mut self,
+        iterable: &[Value],
+        callable: &UntypedExpression,
+        span: &Span,
+    ) -> InterpretterResult {
         let mut rtn = Vec::new();
         for val in iterable {
-            rtn.push(self.evaluate_call(callable, vec![val.clone()], span)?);
+            let val = self.invert_call_or_call(val.clone(), callable, span)?;
+            let Value::None = val else {
+                rtn.push(val);
+                continue;
+            };
         }
         Ok(Value::Array(rtn))
     }
