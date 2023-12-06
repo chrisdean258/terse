@@ -43,7 +43,7 @@ fn run(name: &str, program: &str) -> Result<value::Value, Box<dyn Error>> {
 
     let l = lexer::Lexer::new(name.to_owned(), program.chars().collect());
     // for t in l {
-    // println!("{:?}", t?.value);
+        // println!("{:?}", t?.value);
     // }
     // return Ok(value::Value::None);
     let t = parser::parse(l)?;

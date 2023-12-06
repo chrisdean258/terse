@@ -236,6 +236,10 @@ where
         })
     }
 
+    fn under_comma(&mut self, token: Token) -> ParseResult {
+        self.pipe(token)
+    }
+
     binops!(
         pipe #short_circuit {
             TokenKind::PipeArrow => ShortCircuitBinOpKind::Pipe,
@@ -294,10 +298,28 @@ where
             let token = token?;
             callable = match &token.value {
                 TokenKind::OpenParen => {
-                    let args = Box::new(self.paren(token)?);
-
+                    let mut args = Vec::new();
+                    let mut need_comma = false;
+                    let span = loop {
+                        let mut token = self.must_next_token("close parent or comma")?;
+                        match (&token.value, need_comma) {
+                            (TokenKind::CloseParen, _) => break token.span,
+                            (TokenKind::Comma, true) => {
+                                token = self.must_next_token("expr")?;
+                            }
+                            (_, false) => {}
+                            (_, true) => {
+                                return Err(ParseError::UnexpectedToken {
+                                    expected: vec![TokenKind::CloseParen],
+                                    found: token,
+                                })
+                            }
+                        }
+                        args.push(self.under_comma(token)?);
+                        need_comma = true;
+                    };
                     UntypedExpression {
-                        span: callable.span.to(&args.span),
+                        span: callable.span.to(&span),
                         value: UntypedExpressionKind::RValue(RValueKind::Call {
                             callable: Box::new(callable),
                             args,

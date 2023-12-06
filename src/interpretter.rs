@@ -138,6 +138,10 @@ impl Interpretter {
         Ok(val)
     }
 
+    fn exprs(&mut self, exprs: &[UntypedExpression]) -> Result<Vec<Value>, FlowControl> {
+        exprs.iter().map(|e| self.expr(e)).collect()
+    }
+
     fn expr(&mut self, expr: &UntypedExpression) -> InterpretterResult {
         match &expr.value {
             UntypedExpressionKind::RValue(r) => match r {
@@ -273,11 +277,7 @@ impl Interpretter {
         }) = &right.value
         {
             let callable = self.expr(callable)?;
-            let internal = self.expr(int_args)?;
-            match internal {
-                Value::Tuple(mut a) => args.append(&mut a),
-                a => args.push(a),
-            }
+            args.append(&mut self.exprs(int_args)?);
             callable
         } else {
             self.expr(right)?
@@ -507,14 +507,14 @@ impl Interpretter {
     fn call(
         &mut self,
         callable: &UntypedExpression,
-        args: &UntypedExpression,
+        args: &[UntypedExpression],
         span: &Span,
     ) -> InterpretterResult {
         let callable_val = self.expr(callable)?;
-        let args = match self.expr(args)? {
-            Value::Tuple(v) => v,
-            a => vec![a],
-        };
+        let args = args
+            .iter()
+            .map(|a| self.expr(a))
+            .collect::<Result<Vec<_>, _>>()?;
         self.evaluate_call(&callable_val, args, span)
     }
 

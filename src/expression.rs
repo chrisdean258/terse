@@ -80,7 +80,7 @@ pub enum RValueKind {
     },
     Call {
         callable: SubExpr,
-        args: SubExpr,
+        args: Vec<UntypedExpression>,
     },
     Block(Vec<UntypedExpression>),
     BracketExpr(SubExpr),
@@ -219,7 +219,16 @@ impl Display for RValueKind {
                 writeln!(f, "}}")
             }
             Self::Call { callable, args } => {
-                write!(f, "{callable}{args}")
+                write!(f, "{callable}(")?;
+                let mut first = true;
+                for arg in args {
+                    if !first {
+                        write!(f, ", ")?;
+                    }
+                    first = false;
+                    write!(f, "{arg}")?;
+                }
+                write!(f, ")")
             }
             Self::LambdaArg(i) => {
                 write!(f, "\\{i}")
