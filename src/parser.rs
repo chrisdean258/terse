@@ -40,22 +40,16 @@ impl std::fmt::Display for Ast {
     }
 }
 
-enum LambdaLevel {
-    None,
-    Arg,
-    Full,
-}
-
 struct Parser<I: Iterator<Item = Result<Token, LexError>>> {
     lexer: PutBack<I>,
-    in_lambda: LambdaLevel,
+    in_lambda: bool,
 }
 
 pub fn parse(lexer: impl Iterator<Item = Result<Token, LexError>>) -> Result<Ast, ParseError> {
     let mut tree = Ast { exprs: Vec::new() };
     let mut parser = Parser {
         lexer: put_back(lexer),
-        in_lambda: LambdaLevel::None,
+        in_lambda: false,
     };
     while let Some(e) = parser.parse_expr() {
         let e = e?;
@@ -246,19 +240,16 @@ where
         pipe #short_circuit {
             TokenKind::PipeArrow => ShortCircuitBinOpKind::Pipe,
             TokenKind::SkinnyArrow => ShortCircuitBinOpKind::InvertedCall,
-        } => lambda
+        } => boolean_or
     );
 
     fn lambda(&mut self, token: Token) -> ParseResult {
+        let save = std::mem::replace(&mut self.in_lambda, true);
         let expr = self.boolean_or(token)?;
-        Ok(if let LambdaLevel::Arg = self.in_lambda {
-            self.in_lambda = LambdaLevel::None;
-            UntypedExpression {
-                span: expr.span.clone(),
-                value: UntypedExpressionKind::RValue(RValueKind::Lambda(Rc::new(expr))),
-            }
-        } else {
-            expr
+        self.in_lambda = save;
+        Ok(UntypedExpression {
+            span: expr.span.clone(),
+            value: UntypedExpressionKind::RValue(RValueKind::Lambda(Rc::new(expr))),
         })
     }
 
@@ -341,18 +332,13 @@ where
             TokenKind::Char(c) => self.tag_rval(RValueKind::Char(c), token.span),
             TokenKind::Bool(b) => self.tag_rval(RValueKind::Bool(b), token.span),
             TokenKind::Identifier(i) => self.tag_lval(LValueKind::Variable(i), token.span),
-            TokenKind::LambdaArg(i) => {
-                if let LambdaLevel::None = self.in_lambda {
-                    self.in_lambda = LambdaLevel::Arg;
-                }
+            TokenKind::LambdaArg(i) if self.in_lambda => {
                 self.tag_rval(RValueKind::LambdaArg(i), token.span)
             }
+            TokenKind::LambdaArg(_) => self.lambda(token)?,
             TokenKind::BackSlash => {
                 let token = self.must_next_token("lambda expression")?;
-                let save = std::mem::replace(&mut self.in_lambda, LambdaLevel::Full);
                 let expr = self.lambda(token)?;
-                self.in_lambda = LambdaLevel::None;
-                self.in_lambda = save;
                 UntypedExpression {
                     span: expr.span.clone(),
                     value: UntypedExpressionKind::RValue(RValueKind::Lambda(Rc::new(expr))),

@@ -47,6 +47,6 @@ fn run(name: &str, program: &str) -> Result<value::Value, Box<dyn Error>> {
     // }
     // return Ok(value::Value::None);
     let t = parser::parse(l)?;
-    // eprintln!("{t:#?}");
+    // eprintln!("{t}");
     Ok(intp.interpret(&t)?)
 }
