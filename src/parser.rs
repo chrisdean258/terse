@@ -298,26 +298,7 @@ where
             let token = token?;
             callable = match &token.value {
                 TokenKind::OpenParen => {
-                    let mut args = Vec::new();
-                    let mut need_comma = false;
-                    let span = loop {
-                        let mut token = self.must_next_token("close parent or comma")?;
-                        match (&token.value, need_comma) {
-                            (TokenKind::CloseParen, _) => break token.span,
-                            (TokenKind::Comma, true) => {
-                                token = self.must_next_token("expr")?;
-                            }
-                            (_, false) => {}
-                            (_, true) => {
-                                return Err(ParseError::UnexpectedToken {
-                                    expected: vec![TokenKind::CloseParen],
-                                    found: token,
-                                })
-                            }
-                        }
-                        args.push(self.under_comma(token)?);
-                        need_comma = true;
-                    };
+                    let (args, span) = self.cse(token, TokenKind::CloseParen)?;
                     UntypedExpression {
                         span: callable.span.to(&span),
                         value: UntypedExpressionKind::RValue(RValueKind::Call {
@@ -327,7 +308,19 @@ where
                     }
                 }
                 TokenKind::OpenBracket => {
-                    let subscript = Box::new(self.bracket(token)?);
+                    let token = self.must_next_token("expression in brackets")?;
+                    let subscript = Box::new(self.expr(token)?);
+                    let token = self.must_next_token("close bracket")?;
+                    let Token {
+                        span: _,
+                        value: TokenKind::CloseBracket,
+                    } = token
+                    else {
+                        return Err(ParseError::UnexpectedToken {
+                            expected: vec![TokenKind::CloseBracket],
+                            found: token,
+                        });
+                    };
 
                     UntypedExpression {
                         span: callable.span.to(&subscript.span),
@@ -369,6 +362,7 @@ where
             TokenKind::OpenParen => self.paren(token)?,
             TokenKind::OpenBrace => self.block(token)?,
             TokenKind::Function => self.function(token)?,
+            TokenKind::OpenBracket => self.array(token)?,
             a => todo!("{}:{a:?}", token.span),
         })
     }
@@ -395,24 +389,41 @@ where
         Ok(expr)
     }
 
-    fn bracket(&mut self, open_bracket_token: Token) -> ParseResult {
-        let token = self.must_next_token("expression")?;
-        let expr = self.expr(token)?;
-        let end_paren_token = self.must_next_token("`]`")?;
-        let Token {
-            span,
-            value: TokenKind::CloseBracket,
-        } = end_paren_token
-        else {
-            println!("{expr}");
-            return Err(ParseError::UnexpectedToken {
-                expected: vec![TokenKind::CloseBracket],
-                found: end_paren_token,
-            });
+    fn cse(
+        &mut self,
+        token: Token,
+        end: TokenKind,
+    ) -> Result<(Vec<UntypedExpression>, Span), ParseError> {
+        let mut items = Vec::new();
+        let mut need_comma = false;
+        let span = loop {
+            let mut token = self.must_next_token("close parens or comma")?; // TODO update this message
+            if end == token.value {
+                break token.span;
+            }
+            match (&token.value, need_comma) {
+                (TokenKind::Comma, true) => {
+                    token = self.must_next_token("expr")?;
+                }
+                (_, false) => {}
+                (_, true) => {
+                    return Err(ParseError::UnexpectedToken {
+                        expected: vec![TokenKind::CloseParen],
+                        found: token,
+                    })
+                }
+            }
+            items.push(self.under_comma(token)?);
+            need_comma = true;
         };
+        Ok((items, token.span.to(&span)))
+    }
+
+    fn array(&mut self, open_bracket_token: Token) -> ParseResult {
+        let (items, span) = self.cse(open_bracket_token, TokenKind::CloseBracket)?;
         Ok(UntypedExpression {
-            span: open_bracket_token.span.to(&span),
-            value: UntypedExpressionKind::RValue(RValueKind::BracketExpr(Box::new(expr))),
+            span,
+            value: UntypedExpressionKind::RValue(RValueKind::Array(items)),
         })
     }
 

@@ -86,6 +86,7 @@ pub enum RValueKind {
     BracketExpr(SubExpr),
     LambdaArg(usize),
     Lambda(Rc<UntypedExpression>),
+    Array(Vec<UntypedExpression>),
 }
 
 #[derive(Clone, Debug, Copy, PartialEq, Eq)]
@@ -235,6 +236,14 @@ impl Display for RValueKind {
             }
             Self::Lambda(e) => {
                 write!(f, "\\({e})")
+            }
+            Self::Array(vals) => {
+                let mut first = true;
+                for val in vals {
+                    write!(f, "{}{val}", if first { "[" } else { ", " })?;
+                    first = false;
+                }
+                write!(f, "]")
             }
         }
     }

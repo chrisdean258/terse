@@ -165,6 +165,7 @@ impl Interpretter {
                 RValueKind::Lambda(subexpr) => Ok(Value::Lambda(subexpr.clone())),
                 RValueKind::LambdaArg(i) => self.lambda_arg(*i, &expr.span),
                 RValueKind::BracketExpr(e) => self.expr(e),
+                RValueKind::Array(a) => self.array(a),
             },
             UntypedExpressionKind::LValue(l) => self.lval(l, &expr.span),
         }
@@ -406,7 +407,27 @@ impl Interpretter {
                 }
             }
             (LValueKind::BracketExpr { left, subscript }, val) => {
-                todo!("Array assignment {left}{subscript} = {val}");
+                let left = match left.value {
+                    UntypedExpressionKind::LValue(LValueKind::Variable(ref s)) => s,
+                    _ => todo!(),
+                };
+                let idx = self.expr(subscript)?;
+                let left = match self.scopes.get_mut(left) {
+                    Some(l) => l,
+                    None => {
+                        return Err(FlowControl::Error(InterpretterError::NoSuchVariable(
+                            span.clone(),
+                            left.clone(),
+                        )))
+                    }
+                };
+                let Value::Integer(idx) = idx else {
+                    todo!();
+                };
+                match left {
+                    Value::Array(a) => a[idx as usize] = val,
+                    _ => todo!(),
+                }
             }
             _ => todo!(),
         };
@@ -589,12 +610,18 @@ impl Interpretter {
         }
     }
 
+    fn multiexpr_common(
+        &mut self,
+        values: &[UntypedExpression],
+    ) -> Result<Vec<Value>, FlowControl> {
+        values.iter().map(|v| self.expr(v)).collect()
+    }
+
     fn tuple(&mut self, values: &[UntypedExpression]) -> InterpretterResult {
-        Ok(Value::Tuple(
-            values
-                .iter()
-                .map(|v| self.expr(v))
-                .collect::<Result<Vec<_>, _>>()?,
-        ))
+        Ok(Value::Tuple(self.multiexpr_common(values)?))
+    }
+
+    fn array(&mut self, values: &[UntypedExpression]) -> InterpretterResult {
+        Ok(Value::Array(self.multiexpr_common(values)?))
     }
 }
