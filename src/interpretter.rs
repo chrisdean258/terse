@@ -164,7 +164,6 @@ impl Interpretter {
                 RValueKind::Call { callable, args } => self.call(callable, args, &expr.span),
                 RValueKind::Lambda(subexpr) => Ok(Value::Lambda(subexpr.clone())),
                 RValueKind::LambdaArg(i) => self.lambda_arg(*i, &expr.span),
-                RValueKind::BracketExpr(e) => self.expr(e),
                 RValueKind::Array(a) => self.array(a),
             },
             UntypedExpressionKind::LValue(l) => self.lval(l, &expr.span),
@@ -252,10 +251,8 @@ impl Interpretter {
                 }
             }
             (_a, InvertedCall) => self.invert_call_or_call(left_val, right, span)?,
-            (Value::Array(a), Pipe) => self.pipe(a, right, span)?,
-            (Value::Str(s), Pipe) => {
-                self.pipe(&s.chars().map(Value::Char).collect::<Vec<_>>(), right, span)?
-            }
+            (Value::Array(a), Pipe) => self.pipe(a.clone().into_iter(), right, span)?,
+            (Value::Str(s), Pipe) => self.pipe(s.chars().map(Value::Char), right, span)?,
             (_, op) => {
                 return Err(FlowControl::Error(
                     InterpretterError::ShortCircuitBinOpErrorOne(span.clone(), left_val, *op),
@@ -445,6 +442,20 @@ impl Interpretter {
             Value::Tuple(v) => v,
             Value::Array(v) => v,
             Value::Str(s) => s.chars().map(Value::Char).collect(),
+            Value::Iterable(iterable) => {
+                let Ok(mut iterable) = iterable.try_borrow_mut() else {
+                    todo!("double iterating over an iterable not allowed")
+                };
+                #[allow(clippy::while_let_on_iterator)]
+                while let Some(val) = iterable.next() {
+                    match item.value {
+                        LValueKind::Variable(ref s) => self.scopes.insert(s, val.clone()),
+                        _ => todo!(),
+                    };
+                    self.expr(body)?;
+                }
+                return Ok(Value::None);
+            }
             _ => {
                 return Err(FlowControl::Error(InterpretterError::CannotIterateOver(
                     items.span.clone(),
@@ -551,9 +562,9 @@ impl Interpretter {
         Ok(self.lambda_args.last().unwrap()[num].clone())
     }
 
-    fn pipe(
+    fn pipe<T: Iterator<Item = Value>>(
         &mut self,
-        iterable: &[Value],
+        iterable: T,
         callable: &UntypedExpression,
         span: &Span,
     ) -> InterpretterResult {

@@ -83,7 +83,6 @@ pub enum RValueKind {
         args: Vec<UntypedExpression>,
     },
     Block(Vec<UntypedExpression>),
-    BracketExpr(SubExpr),
     LambdaArg(usize),
     Lambda(Rc<UntypedExpression>),
     Array(Vec<UntypedExpression>),
@@ -198,7 +197,6 @@ impl Display for RValueKind {
                 right,
             } => write!(f, "{left} = {right}"),
             Self::ShortCircuitBinOp { left, op, right } => write!(f, "({left} {op} {right})"),
-            Self::BracketExpr(e) => write!(f, "[{e}]"),
             Self::FlatBinOp { first, rest } => {
                 write!(f, "{first}")?;
                 for (op, expr) in rest.iter() {
