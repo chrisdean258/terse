@@ -1,4 +1,4 @@
-use crate::expression::UntypedExpression;
+use crate::expression::UntypedExpr;
 use std::{
     cell::RefCell,
     fmt::{Debug, Display, Formatter},
@@ -16,9 +16,28 @@ pub enum Value {
     Array(Vec<Value>),
     Char(char),
     ExternalFunc(fn(&[Value]) -> Value),
-    Lazy(fn() -> Value),
-    Lambda(Rc<UntypedExpression>),
-    Iterable(Rc<RefCell<dyn Iterator<Item = Value>>>),
+    Lambda(Rc<UntypedExpr>),
+    Iterable(Iterable),
+}
+
+#[derive(Clone)]
+pub struct Iterable {
+    iterable: Rc<RefCell<dyn Iterator<Item = Value>>>,
+}
+
+impl Iterator for Iterable {
+    type Item = Value;
+    fn next(&mut self) -> Option<Self::Item> {
+        self.iterable.borrow_mut().next()
+    }
+}
+
+impl Iterable {
+    pub fn new(iterable: impl Iterator<Item = Value> + 'static) -> Self {
+        Self {
+            iterable: Rc::new(RefCell::new(iterable)),
+        }
+    }
 }
 
 impl Display for Value {
@@ -57,7 +76,6 @@ impl Display for Value {
                 write!(f, "]")
             }
             Self::ExternalFunc(c) => write!(f, "{c:?}"),
-            Self::Lazy(v) => write!(f, "{v:?}"),
             Self::Lambda(l) => write!(f, "{l}"),
             Self::Iterable(_) => write!(f, "[...]"),
         }
@@ -100,7 +118,6 @@ impl Debug for Value {
                 write!(f, "]")
             }
             Self::ExternalFunc(c) => write!(f, "{c:?}"),
-            Self::Lazy(v) => write!(f, "{v:?}"),
             Self::Lambda(l) => write!(f, "{l}"),
             Self::Iterable(_) => write!(f, "[...]"),
         }

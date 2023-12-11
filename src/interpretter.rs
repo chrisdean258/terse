@@ -1,7 +1,7 @@
 use crate::{
     expression::{
         AssignmentKind, BinOpKind, DeclarationKind, FlatBinOpKind, LValueKind, RValueKind,
-        ShortCircuitBinOpKind, UntypedExpression, UntypedExpressionKind, UntypedLValue,
+        ShortCircuitBinOpKind, UntypedExpr, UntypedExprKind, UntypedLValue,
     },
     intrinsics::intrinsics,
     parser::Ast,
@@ -78,9 +78,6 @@ impl ScopeTable {
     pub fn get(&mut self, key: &str) -> Option<&Value> {
         for scope in self.scopes.iter_mut().rev() {
             if let Some(v) = scope.get_mut(key) {
-                if let Value::Lazy(l) = v {
-                    *v = l();
-                }
                 return Some(v);
             }
         }
@@ -131,13 +128,13 @@ impl Interpretter {
         Ok(val)
     }
 
-    fn exprs(&mut self, exprs: &[UntypedExpression]) -> Result<Vec<Value>, FlowControl> {
+    fn exprs(&mut self, exprs: &[UntypedExpr]) -> Result<Vec<Value>, FlowControl> {
         exprs.iter().map(|e| self.expr(e)).collect()
     }
 
-    fn expr(&mut self, expr: &UntypedExpression) -> InterpretterResult {
+    fn expr(&mut self, expr: &UntypedExpr) -> InterpretterResult {
         match &expr.value {
-            UntypedExpressionKind::RValue(r) => match r {
+            UntypedExprKind::RValue(r) => match r {
                 RValueKind::Integer(i) => Ok(Value::Integer(*i)),
                 RValueKind::Float(f) => Ok(Value::Float(*f)),
                 RValueKind::Bool(b) => Ok(Value::Bool(*b)),
@@ -162,7 +159,7 @@ impl Interpretter {
                     self.declaration(*kind, name.clone(), value)
                 }
             },
-            UntypedExpressionKind::LValue(l) => self.lval(l, &expr.span),
+            UntypedExprKind::LValue(l) => self.lval(l, &expr.span),
         }
     }
 
@@ -177,9 +174,9 @@ impl Interpretter {
     fn binop(
         &mut self,
         span: &Span,
-        left: &UntypedExpression,
+        left: &UntypedExpr,
         op: &BinOpKind,
-        right: &UntypedExpression,
+        right: &UntypedExpr,
     ) -> InterpretterResult {
         use BinOpKind::*;
         use InterpretterError::*;
@@ -222,13 +219,13 @@ impl Interpretter {
     fn short_circuit_binop(
         &mut self,
         span: &Span,
-        left: &UntypedExpression,
+        left: &UntypedExpr,
         op: &ShortCircuitBinOpKind,
-        right: &UntypedExpression,
+        right: &UntypedExpr,
     ) -> InterpretterResult {
         use ShortCircuitBinOpKind::*;
-        let left_val = self.expr(left)?;
-        let val = match (&left_val, op) {
+        let mut left_val = self.expr(left)?;
+        let val = match (&mut left_val, op) {
             (Value::Bool(false), BoolAnd) => Value::Bool(false),
             (Value::Bool(true), BoolOr) => Value::Bool(true),
             (Value::Bool(true), BoolAnd) | (Value::Bool(false), BoolOr) => {
@@ -249,6 +246,7 @@ impl Interpretter {
             (_a, InvertedCall) => self.invert_call_or_call(left_val, right, span)?,
             (Value::Array(a), Pipe) => self.pipe(a.clone().into_iter(), right, span)?,
             (Value::Str(s), Pipe) => self.pipe(s.chars().map(Value::Char), right, span)?,
+            (Value::Iterable(iter), Pipe) => self.pipe(iter, right, span)?,
             (_, op) => {
                 return Err(FlowControl::Error(
                     InterpretterError::ShortCircuitBinOpErrorOne(span.clone(), left_val, *op),
@@ -261,11 +259,11 @@ impl Interpretter {
     fn invert_call_or_call(
         &mut self,
         left: Value,
-        right: &UntypedExpression,
+        right: &UntypedExpr,
         span: &Span,
     ) -> InterpretterResult {
         let mut args: Vec<Value> = vec![left];
-        let b = if let UntypedExpressionKind::RValue(RValueKind::Call {
+        let b = if let UntypedExprKind::RValue(RValueKind::Call {
             callable,
             args: int_args,
         }) = &right.value
@@ -282,8 +280,8 @@ impl Interpretter {
     fn flat_binop(
         &mut self,
         span: &Span,
-        first: &UntypedExpression,
-        rest: &[(FlatBinOpKind, Box<UntypedExpression>)],
+        first: &UntypedExpr,
+        rest: &[(FlatBinOpKind, Box<UntypedExpr>)],
     ) -> InterpretterResult {
         let mut result = self.expr(first)?;
         for (op, expr) in rest.iter() {
@@ -354,7 +352,7 @@ impl Interpretter {
         &mut self,
         left: &UntypedLValue,
         _op: &AssignmentKind,
-        right: &UntypedExpression,
+        right: &UntypedExpr,
         span: &Span,
     ) -> InterpretterResult {
         let right = self.expr(right)?;
@@ -363,16 +361,16 @@ impl Interpretter {
 
     fn try_assignment(
         &mut self,
-        left: &UntypedExpression,
+        left: &UntypedExpr,
         op: &AssignmentKind,
         right: Value,
         span: &Span,
     ) -> InterpretterResult {
         match &left.value {
-            UntypedExpressionKind::RValue(_) => Err(FlowControl::Error(
+            UntypedExprKind::RValue(_) => Err(FlowControl::Error(
                 InterpretterError::CannotAssign(span.clone()),
             )),
-            UntypedExpressionKind::LValue(l) => self.assignment_one(l, op, right, span),
+            UntypedExprKind::LValue(l) => self.assignment_one(l, op, right, span),
         }
     }
 
@@ -409,7 +407,7 @@ impl Interpretter {
             }
             (LValueKind::BracketExpr { left, subscript }, val) => {
                 let left = match left.value {
-                    UntypedExpressionKind::LValue(LValueKind::Variable(ref s)) => s,
+                    UntypedExprKind::LValue(LValueKind::Variable(ref s)) => s,
                     _ => todo!(),
                 };
                 let idx = self.expr(subscript)?;
@@ -438,8 +436,8 @@ impl Interpretter {
     fn for_(
         &mut self,
         item: &UntypedLValue,
-        items: &UntypedExpression,
-        body: &UntypedExpression,
+        items: &UntypedExpr,
+        body: &UntypedExpr,
     ) -> InterpretterResult {
         let right = self.expr(items)?;
         let items_vec = match right {
@@ -447,11 +445,7 @@ impl Interpretter {
             Value::Array(v) => v,
             Value::Str(s) => s.chars().map(Value::Char).collect(),
             Value::Iterable(iterable) => {
-                let Ok(mut iterable) = iterable.try_borrow_mut() else {
-                    todo!("double iterating over an iterable not allowed")
-                };
-                #[allow(clippy::while_let_on_iterator)]
-                while let Some(val) = iterable.next() {
+                for val in iterable {
                     match item.value {
                         LValueKind::Variable(ref s) => self.scopes.insert(s.clone(), val.clone()),
                         _ => todo!(),
@@ -479,8 +473,8 @@ impl Interpretter {
 
     fn if_(
         &mut self,
-        condition: &UntypedExpression,
-        body: &UntypedExpression,
+        condition: &UntypedExpr,
+        body: &UntypedExpr,
     ) -> InterpretterResult {
         let condition_val = self.expr(condition)?;
         match condition_val {
@@ -507,7 +501,7 @@ impl Interpretter {
         })
     }
 
-    fn block(&mut self, exprs: &[UntypedExpression]) -> InterpretterResult {
+    fn block(&mut self, exprs: &[UntypedExpr]) -> InterpretterResult {
         self.scopes.open();
         let mut val = Value::None;
         for e in exprs {
@@ -544,8 +538,8 @@ impl Interpretter {
 
     fn call(
         &mut self,
-        callable: &UntypedExpression,
-        args: &[UntypedExpression],
+        callable: &UntypedExpr,
+        args: &[UntypedExpr],
         span: &Span,
     ) -> InterpretterResult {
         let callable_val = self.expr(callable)?;
@@ -571,7 +565,7 @@ impl Interpretter {
     fn pipe<T: Iterator<Item = Value>>(
         &mut self,
         iterable: T,
-        callable: &UntypedExpression,
+        callable: &UntypedExpr,
         span: &Span,
     ) -> InterpretterResult {
         let mut rtn = Vec::new();
@@ -588,8 +582,8 @@ impl Interpretter {
     fn bracket(
         &mut self,
         span: &Span,
-        left: &UntypedExpression,
-        subscript: &UntypedExpression,
+        left: &UntypedExpr,
+        subscript: &UntypedExpr,
     ) -> InterpretterResult {
         let left = self.expr(left)?;
         let subscript = self.expr(subscript)?;
@@ -629,16 +623,16 @@ impl Interpretter {
 
     fn multiexpr_common(
         &mut self,
-        values: &[UntypedExpression],
+        values: &[UntypedExpr],
     ) -> Result<Vec<Value>, FlowControl> {
         values.iter().map(|v| self.expr(v)).collect()
     }
 
-    fn tuple(&mut self, values: &[UntypedExpression]) -> InterpretterResult {
+    fn tuple(&mut self, values: &[UntypedExpr]) -> InterpretterResult {
         Ok(Value::Tuple(self.multiexpr_common(values)?))
     }
 
-    fn array(&mut self, values: &[UntypedExpression]) -> InterpretterResult {
+    fn array(&mut self, values: &[UntypedExpr]) -> InterpretterResult {
         Ok(Value::Array(self.multiexpr_common(values)?))
     }
 
@@ -646,7 +640,7 @@ impl Interpretter {
         &mut self,
         _kind: DeclarationKind,
         name: String,
-        value: &UntypedExpression,
+        value: &UntypedExpr,
     ) -> InterpretterResult {
         let value = self.expr(value)?;
         self.scopes.insert(name, value.clone());

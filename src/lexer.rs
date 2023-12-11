@@ -1,6 +1,6 @@
 use crate::{
     span::{ControlBlock, Span},
-    token::{Token, TokenKind},
+    token::{Kind as TokenKind, Token},
 };
 use std::mem::replace;
 use std::{cell::RefCell, rc::Rc};

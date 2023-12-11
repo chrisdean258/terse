@@ -4,11 +4,11 @@ use std::fmt::{Display, Formatter};
 #[derive(Debug, Clone)]
 pub struct Token {
     pub span: Span,
-    pub value: TokenKind,
+    pub value: Kind,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum TokenKind {
+pub enum Kind {
     Integer(i64),
     Float(f64),
     Str(String),
@@ -80,7 +80,7 @@ pub enum TokenKind {
     Var,
 }
 
-impl Display for TokenKind {
+impl Display for Kind {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
         match self {
             Self::Integer(i) => write!(f, "{i}"),

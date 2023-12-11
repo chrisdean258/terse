@@ -1,11 +1,11 @@
 use crate::{
     expression::{
         AssignmentKind, BinOpKind, DeclarationKind, FlatBinOpKind, LValueKind, RValueKind,
-        ShortCircuitBinOpKind, UntypedExpression, UntypedExpressionKind, UntypedLValue,
+        ShortCircuitBinOpKind, UntypedExpr, UntypedExprKind, UntypedLValue,
     },
     lexer::LexError,
     span::Span,
-    token::{Token, TokenKind},
+    token::{Kind as TokenKind, Token},
 };
 use itertools::{put_back, structs::PutBack};
 use std::rc::Rc;
@@ -23,17 +23,17 @@ pub enum ParseError {
         found: Token,
     },
     #[error("{}: `{}` cannot be assigned to", .0.span, .0.value)]
-    NotAnLValue(UntypedExpression),
+    NotAnLValue(UntypedExpr),
 }
 
 #[derive(Debug)]
 pub struct Ast {
-    pub exprs: Vec<UntypedExpression>,
+    pub exprs: Vec<UntypedExpr>,
 }
 
 impl std::fmt::Display for Ast {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        for e in self.exprs.iter() {
+        for e in &self.exprs {
             writeln!(f, "{e}")?;
         }
         Ok(())
@@ -58,7 +58,7 @@ pub fn parse(lexer: impl Iterator<Item = Result<Token, LexError>>) -> Result<Ast
     Ok(tree)
 }
 
-type ParseResult = Result<UntypedExpression, ParseError>;
+type ParseResult = Result<UntypedExpr, ParseError>;
 
 macro_rules! binops {
     ($name:ident) => {};
@@ -82,9 +82,9 @@ macro_rules! binops {
                 };
 
                 let right = self.$next(tok2?)?;
-                left = UntypedExpression {
+                left = UntypedExpr {
                     span: left.span.to(&right.span),
-                    value: UntypedExpressionKind::RValue(RValueKind::$return {
+                    value: UntypedExprKind::RValue(RValueKind::$return {
                         left: Box::new(left),
                         op,
                         right: Box::new(right),
@@ -122,9 +122,9 @@ macro_rules! binops {
             Ok(if rest.is_empty() {
                 first
             } else {
-                UntypedExpression {
+                UntypedExpr {
                     span : first.span.to(&rest.last().unwrap().1.span),
-                    value: UntypedExpressionKind::RValue(RValueKind::FlatBinOp {
+                    value: UntypedExprKind::RValue(RValueKind::FlatBinOp {
                         first: Box::new(first),
                         rest,
                     })
@@ -141,22 +141,22 @@ where
 {
     fn parse_expr(&mut self) -> Option<ParseResult> {
         match self.lexer.next()? {
-            Err(e) => Some(Err(ParseError::LexError(e.clone()))),
+            Err(e) => Some(Err(ParseError::LexError(e))),
             Ok(t) => Some(self.expr(t)),
         }
     }
 
-    fn tag_rval(&mut self, value: RValueKind, span: Span) -> UntypedExpression {
-        UntypedExpression {
+    const fn tag_rval(value: RValueKind, span: Span) -> UntypedExpr {
+        UntypedExpr {
             span,
-            value: UntypedExpressionKind::RValue(value),
+            value: UntypedExprKind::RValue(value),
         }
     }
 
-    fn tag_lval(&mut self, value: LValueKind, span: Span) -> UntypedExpression {
-        UntypedExpression {
+    const fn tag_lval(value: LValueKind, span: Span) -> UntypedExpr {
+        UntypedExpr {
             span,
-            value: UntypedExpressionKind::LValue(value),
+            value: UntypedExprKind::LValue(value),
         }
     }
 
@@ -191,6 +191,7 @@ where
         let token = token?;
         let op = match &token.value {
             TokenKind::SingleEquals => AssignmentKind::Equals,
+            TokenKind::PlusEquals => AssignmentKind::PlusEquals,
             _ => {
                 self.lexer.put_back(Ok(token));
                 return Ok(left);
@@ -204,9 +205,9 @@ where
             return Err(ParseError::UnexpectedEOF("expression"));
         };
         let right = Box::new(self.expr(token?)?);
-        let rtn = UntypedExpression {
+        let rtn = UntypedExpr {
             span: left.span.to(&right.span),
-            value: UntypedExpressionKind::RValue(RValueKind::Assignment { left, op, right }),
+            value: UntypedExprKind::RValue(RValueKind::Assignment { left, op, right }),
         };
         Ok(rtn)
     }
@@ -231,9 +232,9 @@ where
             return Ok(exprs.pop().unwrap());
         }
 
-        Ok(UntypedExpression {
+        Ok(UntypedExpr {
             span: exprs.first().unwrap().span.to(&exprs.last().unwrap().span),
-            value: UntypedExpressionKind::LValue(LValueKind::Tuple(exprs)),
+            value: UntypedExprKind::LValue(LValueKind::Tuple(exprs)),
         })
     }
 
@@ -252,9 +253,9 @@ where
         let save = std::mem::replace(&mut self.in_lambda, true);
         let expr = self.boolean_or(token)?;
         self.in_lambda = save;
-        Ok(UntypedExpression {
+        Ok(UntypedExpr {
             span: expr.span.clone(),
-            value: UntypedExpressionKind::RValue(RValueKind::Lambda(Rc::new(expr))),
+            value: UntypedExprKind::RValue(RValueKind::Lambda(Rc::new(expr))),
         })
     }
 
@@ -300,9 +301,9 @@ where
             callable = match &token.value {
                 TokenKind::OpenParen => {
                     let (args, span) = self.cse(token, TokenKind::CloseParen)?;
-                    UntypedExpression {
+                    UntypedExpr {
                         span: callable.span.to(&span),
-                        value: UntypedExpressionKind::RValue(RValueKind::Call {
+                        value: UntypedExprKind::RValue(RValueKind::Call {
                             callable: Box::new(callable),
                             args,
                         }),
@@ -323,9 +324,9 @@ where
                         });
                     };
 
-                    UntypedExpression {
+                    UntypedExpr {
                         span: callable.span.to(&subscript.span),
-                        value: UntypedExpressionKind::LValue(LValueKind::BracketExpr {
+                        value: UntypedExprKind::LValue(LValueKind::BracketExpr {
                             left: Box::new(callable),
                             subscript,
                         }),
@@ -342,22 +343,22 @@ where
 
     fn literal_id_or_recurse(&mut self, token: Token) -> ParseResult {
         Ok(match token.value {
-            TokenKind::Integer(i) => self.tag_rval(RValueKind::Integer(i), token.span),
-            TokenKind::Float(f) => self.tag_rval(RValueKind::Float(f), token.span),
-            TokenKind::Str(s) => self.tag_rval(RValueKind::Str(s), token.span),
-            TokenKind::Char(c) => self.tag_rval(RValueKind::Char(c), token.span),
-            TokenKind::Bool(b) => self.tag_rval(RValueKind::Bool(b), token.span),
-            TokenKind::Identifier(i) => self.tag_lval(LValueKind::Variable(i), token.span),
+            TokenKind::Integer(i) => Self::tag_rval(RValueKind::Integer(i), token.span),
+            TokenKind::Float(f) => Self::tag_rval(RValueKind::Float(f), token.span),
+            TokenKind::Str(s) => Self::tag_rval(RValueKind::Str(s), token.span),
+            TokenKind::Char(c) => Self::tag_rval(RValueKind::Char(c), token.span),
+            TokenKind::Bool(b) => Self::tag_rval(RValueKind::Bool(b), token.span),
+            TokenKind::Identifier(i) => Self::tag_lval(LValueKind::Variable(i), token.span),
             TokenKind::LambdaArg(i) if self.in_lambda => {
-                self.tag_rval(RValueKind::LambdaArg(i), token.span)
+                Self::tag_rval(RValueKind::LambdaArg(i), token.span)
             }
             TokenKind::LambdaArg(_) => self.lambda(token)?,
             TokenKind::BackSlash => {
                 let token = self.must_next_token("lambda expression")?;
                 let expr = self.lambda(token)?;
-                UntypedExpression {
+                UntypedExpr {
                     span: expr.span.clone(),
-                    value: UntypedExpressionKind::RValue(RValueKind::Lambda(Rc::new(expr))),
+                    value: UntypedExprKind::RValue(RValueKind::Lambda(Rc::new(expr))),
                 }
             }
             TokenKind::OpenParen => self.paren(token)?,
@@ -368,8 +369,8 @@ where
         })
     }
 
-    fn function(&mut self, _token: Token) -> ParseResult {
-        todo!()
+    fn function(&mut self, token: Token) -> ParseResult {
+        todo!("{:?}", token)
     }
 
     fn paren(&mut self, open_paren_token: Token) -> ParseResult {
@@ -394,7 +395,7 @@ where
         &mut self,
         token: Token,
         end: TokenKind,
-    ) -> Result<(Vec<UntypedExpression>, Span), ParseError> {
+    ) -> Result<(Vec<UntypedExpr>, Span), ParseError> {
         let mut items = Vec::new();
         let mut need_comma = false;
         let span = loop {
@@ -422,9 +423,9 @@ where
 
     fn array(&mut self, open_bracket_token: Token) -> ParseResult {
         let (items, span) = self.cse(open_bracket_token, TokenKind::CloseBracket)?;
-        Ok(UntypedExpression {
+        Ok(UntypedExpr {
             span,
-            value: UntypedExpressionKind::RValue(RValueKind::Array(items)),
+            value: UntypedExprKind::RValue(RValueKind::Array(items)),
         })
     }
 
@@ -436,9 +437,9 @@ where
             };
             let token = token?;
             if let TokenKind::CloseBrace = token.value {
-                return Ok(UntypedExpression {
+                return Ok(UntypedExpr {
                     span: open_brace_token.span.to(&token.span),
-                    value: UntypedExpressionKind::RValue(RValueKind::Block(exprs)),
+                    value: UntypedExprKind::RValue(RValueKind::Block(exprs)),
                 });
             }
             exprs.push(self.expr(token)?);
@@ -459,9 +460,9 @@ where
         let items = Box::new(self.expr(token)?);
         let token = self.must_next_token("expresion body of for loop")?;
         let body = Box::new(self.expr(token)?);
-        Ok(UntypedExpression {
+        Ok(UntypedExpr {
             span: for_token.span.to(&body.span),
-            value: UntypedExpressionKind::RValue(RValueKind::For { item, items, body }),
+            value: UntypedExprKind::RValue(RValueKind::For { item, items, body }),
         })
     }
 
@@ -470,9 +471,9 @@ where
         let condition = Box::new(self.expr(token)?);
         let token = self.must_next_token("body in if")?;
         let body = Box::new(self.expr(token)?);
-        Ok(UntypedExpression {
+        Ok(UntypedExpr {
             span: if_token.span.to(&body.span),
-            value: UntypedExpressionKind::RValue(RValueKind::If { condition, body }),
+            value: UntypedExprKind::RValue(RValueKind::If { condition, body }),
         })
     }
 
@@ -506,9 +507,9 @@ where
         };
         let token = self.must_next_token("expression")?;
         let value = Box::new(self.expr(token)?);
-        Ok(UntypedExpression {
+        Ok(UntypedExpr {
             span: decl_type.span.to(&value.span),
-            value: UntypedExpressionKind::RValue(RValueKind::Declaration { kind, name, value }),
+            value: UntypedExprKind::RValue(RValueKind::Declaration { kind, name, value }),
         })
     }
 }

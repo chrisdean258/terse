@@ -5,9 +5,9 @@ use std::{
 };
 
 #[derive(Debug)]
-pub struct UntypedExpression {
+pub struct UntypedExpr {
     pub span: Span,
-    pub value: UntypedExpressionKind,
+    pub value: UntypedExprKind,
 }
 
 #[derive(Debug)]
@@ -16,9 +16,9 @@ pub struct UntypedLValue {
     pub value: LValueKind,
 }
 
-impl UntypedExpression {
+impl UntypedExpr {
     pub fn into_lval(self) -> Result<UntypedLValue, Self> {
-        let UntypedExpressionKind::LValue(value) = self.value else {
+        let UntypedExprKind::LValue(value) = self.value else {
             return Err(self);
         };
         Ok(UntypedLValue {
@@ -28,10 +28,10 @@ impl UntypedExpression {
     }
 }
 
-type SubExpr = Box<UntypedExpression>;
+type SubExpr = Box<UntypedExpr>;
 
 #[derive(Debug)]
-pub enum UntypedExpressionKind {
+pub enum UntypedExprKind {
     RValue(RValueKind),
     LValue(LValueKind),
 }
@@ -40,7 +40,7 @@ pub enum UntypedExpressionKind {
 pub enum LValueKind {
     Variable(String),
     BracketExpr { left: SubExpr, subscript: SubExpr },
-    Tuple(Vec<UntypedExpression>),
+    Tuple(Vec<UntypedExpr>),
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -91,12 +91,12 @@ pub enum RValueKind {
     },
     Call {
         callable: SubExpr,
-        args: Vec<UntypedExpression>,
+        args: Vec<UntypedExpr>,
     },
-    Block(Vec<UntypedExpression>),
+    Block(Vec<UntypedExpr>),
     LambdaArg(usize),
-    Lambda(Rc<UntypedExpression>),
-    Array(Vec<UntypedExpression>),
+    Lambda(Rc<UntypedExpr>),
+    Array(Vec<UntypedExpr>),
 }
 
 #[derive(Clone, Debug, Copy, PartialEq, Eq)]
@@ -118,6 +118,7 @@ pub enum BinOpKind {
 #[derive(Clone, Debug, Copy, PartialEq, Eq)]
 pub enum AssignmentKind {
     Equals,
+    PlusEquals,
 }
 
 #[derive(Clone, Debug, Copy, PartialEq, Eq)]
@@ -210,7 +211,7 @@ impl Display for RValueKind {
             Self::ShortCircuitBinOp { left, op, right } => write!(f, "({left} {op} {right})"),
             Self::FlatBinOp { first, rest } => {
                 write!(f, "{first}")?;
-                for (op, expr) in rest.iter() {
+                for (op, expr) in rest {
                     write!(f, " {op} {expr}")?;
                 }
                 Ok(())
@@ -282,7 +283,7 @@ impl Display for LValueKind {
     }
 }
 
-impl Display for UntypedExpressionKind {
+impl Display for UntypedExprKind {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
         match self {
             Self::RValue(r) => write!(f, "{r}"),
@@ -291,7 +292,7 @@ impl Display for UntypedExpressionKind {
     }
 }
 
-impl Display for UntypedExpression {
+impl Display for UntypedExpr {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
         write!(f, "{}", self.value)
     }

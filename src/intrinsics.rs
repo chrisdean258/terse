@@ -1,9 +1,14 @@
-use crate::value::Value;
-use std::{cell::RefCell, collections::HashMap, io::stdin, rc::Rc};
+use crate::value::{Iterable, Value};
+use std::{collections::HashMap, io::stdin};
 
 pub fn intrinsics() -> HashMap<String, Value> {
     let mut vars = HashMap::new();
-    vars.insert("stdin".into(), Value::Lazy(read_stdin));
+    vars.insert(
+        "stdin".into(),
+        Value::Iterable(Iterable::new(
+            stdin().lines().map(|s| Value::Str(s.expect("stdin"))),
+        )),
+    );
     vars.insert("replace".into(), Value::ExternalFunc(str_replace));
     vars.insert("print".into(), Value::ExternalFunc(print_val));
     vars.insert("split".into(), Value::ExternalFunc(split_str));
@@ -39,12 +44,6 @@ fn print_val(ipt: &[Value]) -> Value {
     Value::None
 }
 
-fn read_stdin() -> Value {
-    Value::Iterable(Rc::new(RefCell::new(
-        stdin().lines().map(|s| Value::Str(s.expect("stdin"))),
-    )))
-}
-
 fn split_str(ipt: &[Value]) -> Value {
     assert_eq!(ipt.len(), 2);
     let arg = ipt[0].clone();
@@ -73,15 +72,7 @@ fn collect(ipt: &[Value]) -> Value {
     assert_eq!(ipt.len(), 1);
     let arg = ipt[0].clone();
     match arg {
-        Value::Iterable(a) => {
-            let mut rtn = Vec::new();
-            let mut a = a.borrow_mut();
-            #[allow(clippy::while_let_on_iterator)]
-            while let Some(v) = a.next() {
-                rtn.push(v);
-            }
-            Value::Array(rtn)
-        }
+        Value::Iterable(a) => Value::Array(a.collect()),
         a => todo!("{a}"),
     }
 }
