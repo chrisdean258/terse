@@ -61,9 +61,12 @@ fn join_str(ipt: &[Value]) -> Value {
     let arg = ipt[0].clone();
     let joiner = ipt[1].clone();
     match (arg, joiner) {
-        (Value::Array(a), Value::Str(s)) => {
-            Value::Str(a.iter().map(|e| e.to_string()).collect::<Vec<_>>().join(&s))
-        }
+        (Value::Array(a), Value::Str(s)) => Value::Str(
+            a.iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+                .join(&s),
+        ),
         (a, b) => todo!("{a} {b}"),
     }
 }

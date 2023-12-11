@@ -29,7 +29,17 @@ impl Iterator for Lexer {
     type Item = Result<Token, LexError>;
     #[allow(clippy::too_many_lines)]
     fn next(&mut self) -> Option<Self::Item> {
-        use TokenKind::*;
+        use TokenKind::{
+            Ampersand, AmpersandEquals, Asterik, BackSlash, BangSign, BitShiftLeft,
+            BitShiftLeftEquals, BitShiftRight, BitShiftRightEquals, CloseBrace, CloseBracket,
+            CloseParen, Comma, CrossArrow, Decrement, DollarSign, Dot, DoubleAmpersand,
+            DoubleAmpersandEquals, DoubleEquals, DoubleForwardSlash, DoubleForwardSlashEquals,
+            DoubleHat, DoubleHatEquals, DoublePipe, DoublePipeEquals, FatArrow, ForwardSlash,
+            ForwardSlashEquals, GreaterThan, GreaterThanOrEqual, Hat, HatEquals, Increment,
+            LambdaArg, LessThan, LessThanOrEqual, Minus, MinusEquals, Mod, ModEquals, NotEqual,
+            OpenBrace, OpenBracket, OpenParen, Pipe, PipeArrow, PipeEquals, Plus, PlusEquals,
+            SingleEquals, SkinnyArrow, SquigglyArrow, Tilde, TildeEquals, TimesEquals,
+        };
         while let Some(c) = self.next_if(char::is_whitespace) {
             if c == '\n' {
                 self.meta.newlines.borrow_mut().push(self.cursor - 1);

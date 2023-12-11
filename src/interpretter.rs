@@ -17,15 +17,15 @@ pub struct Interpretter {
 }
 
 #[derive(Error, Debug, Clone)]
-pub enum InterpretterError {
+pub enum Error {
     #[error("{0}: Cannot evaluate `{1} {2}`")]
     ShortCircuitBinOpErrorOne(Span, Value, ShortCircuitBinOpKind),
     #[error("{0}: Cannot evaluate `{1} {2} {3}`")]
     ShortCircuitBinOpErrorTwo(Span, Value, ShortCircuitBinOpKind, Value),
     #[error("{0}: Cannot evaluate `{1} {2} {3}`")]
-    FlatBinOpError(Span, Value, FlatBinOpKind, Value),
+    FlatBinOp(Span, Value, FlatBinOpKind, Value),
     #[error("{0}: Cannot evaluate `{1} {2} {3}`")]
-    BinOpError(Span, Value, BinOpKind, Value),
+    BinOp(Span, Value, BinOpKind, Value),
     #[error("{0}: Divide by zero")]
     DivideBy0(Span),
     #[error("{0}: Mod by zero")]
@@ -49,6 +49,8 @@ pub enum InterpretterError {
     //TODO: make this error message better
     #[error("{0}: Cannot assign into expression")]
     CannotAssign(Span),
+    #[error("{0}")]
+    BadConversion(#[from] std::num::TryFromIntError),
 }
 
 pub struct ScopeTable {
@@ -57,7 +59,13 @@ pub struct ScopeTable {
 
 #[derive(Debug, Clone)]
 enum FlowControl {
-    Error(InterpretterError),
+    Error(Error),
+}
+
+impl From<Error> for FlowControl {
+    fn from(err: Error) -> Self {
+        Self::Error(err)
+    }
 }
 
 type InterpretterResult = Result<Value, FlowControl>;
@@ -94,14 +102,12 @@ impl ScopeTable {
     }
 
     pub fn open(&mut self) {
-        self.scopes.push(HashMap::new())
+        self.scopes.push(HashMap::new());
     }
 
     pub fn close(&mut self) {
         self.scopes.pop();
-        if self.scopes.is_empty() {
-            panic!("popped last scope");
-        }
+        assert!(!self.scopes.is_empty(), "popped last scope");
     }
 }
 
@@ -117,9 +123,9 @@ impl Interpretter {
         }
     }
 
-    pub fn interpret(&mut self, ast: &Ast) -> Result<Value, InterpretterError> {
+    pub fn interpret(&mut self, ast: &Ast) -> Result<Value, Error> {
         let mut val = Value::None;
-        for expr in ast.exprs.iter() {
+        for expr in &ast.exprs {
             val = self.expr(expr).map_err(|e| {
                 let FlowControl::Error(ie) = e;
                 ie
@@ -140,13 +146,13 @@ impl Interpretter {
                 RValueKind::Bool(b) => Ok(Value::Bool(*b)),
                 RValueKind::Str(s) => Ok(Value::Str(s.clone())),
                 RValueKind::Char(c) => Ok(Value::Char(*c)),
-                RValueKind::BinOp { left, op, right } => self.binop(&expr.span, left, op, right),
+                RValueKind::BinOp { left, op, right } => self.binop(&expr.span, left, *op, right),
                 RValueKind::FlatBinOp { first, rest } => self.flat_binop(&expr.span, first, rest),
                 RValueKind::ShortCircuitBinOp { left, op, right } => {
-                    self.short_circuit_binop(&expr.span, left, op, right)
+                    self.short_circuit_binop(&expr.span, left, *op, right)
                 }
                 RValueKind::Assignment { left, op, right } => {
-                    self.assignment(left, op, right, &expr.span)
+                    self.assignment(left, *op, right, &expr.span)
                 }
                 RValueKind::For { item, items, body } => self.for_(item, items, body),
                 RValueKind::If { condition, body } => self.if_(condition, body),
@@ -175,11 +181,11 @@ impl Interpretter {
         &mut self,
         span: &Span,
         left: &UntypedExpr,
-        op: &BinOpKind,
+        op: BinOpKind,
         right: &UntypedExpr,
     ) -> InterpretterResult {
-        use BinOpKind::*;
-        use InterpretterError::*;
+        use BinOpKind::{Add, Divide, IntegerDivide, Mod, Multiply, Subtract};
+        use Error::{BinOp, DivideBy0, ModBy0};
         let left_val = self.expr(left)?;
         let right_val = self.expr(right)?;
         let val = match (left_val, op, right_val) {
@@ -190,13 +196,11 @@ impl Interpretter {
                 return Err(FlowControl::Error(ModBy0(span.clone())))
             }
             (Value::Integer(l), Mod, Value::Integer(r)) => Value::Integer(l % r),
-            (Value::Integer(_), Divide, Value::Integer(0)) => {
+            (Value::Integer(_), Divide | IntegerDivide, Value::Integer(0)) => {
                 return Err(FlowControl::Error(DivideBy0(span.clone())))
             }
+            #[allow(clippy::cast_precision_loss)]
             (Value::Integer(l), Divide, Value::Integer(r)) => Value::Float(l as f64 / r as f64),
-            (Value::Integer(_), IntegerDivide, Value::Integer(0)) => {
-                return Err(FlowControl::Error(DivideBy0(span.clone())))
-            }
             (Value::Integer(l), IntegerDivide, Value::Integer(r)) => Value::Integer(l / r),
 
             (Value::Char(l), Subtract, Value::Char(r)) => Value::Integer(l as i64 - r as i64),
@@ -206,12 +210,12 @@ impl Interpretter {
             (Value::Float(l), Subtract, Value::Float(r)) => Value::Float(l - r),
 
             (Value::Str(l), Add, Value::Str(r)) => Value::Str(l + &r),
-            (Value::Tuple(l), Add, Value::Tuple(r)) => {
-                let mut t = l.clone();
-                t.append(&mut r.clone());
+            (Value::Tuple(l), Add, Value::Tuple(mut r)) => {
+                let mut t = l;
+                t.append(&mut r);
                 Value::Tuple(t)
             }
-            (l, op, r) => return Err(FlowControl::Error(BinOpError(span.clone(), l, *op, r))),
+            (l, op, r) => return Err(FlowControl::Error(BinOp(span.clone(), l, op, r))),
         };
         Ok(val)
     }
@@ -220,10 +224,10 @@ impl Interpretter {
         &mut self,
         span: &Span,
         left: &UntypedExpr,
-        op: &ShortCircuitBinOpKind,
+        op: ShortCircuitBinOpKind,
         right: &UntypedExpr,
     ) -> InterpretterResult {
-        use ShortCircuitBinOpKind::*;
+        use ShortCircuitBinOpKind::{BoolAnd, BoolOr, InvertedCall, Pipe};
         let mut left_val = self.expr(left)?;
         let val = match (&mut left_val, op) {
             (Value::Bool(false), BoolAnd) => Value::Bool(false),
@@ -232,14 +236,12 @@ impl Interpretter {
                 match self.expr(right)? {
                     Value::Bool(b) => Value::Bool(b),
                     v => {
-                        return Err(FlowControl::Error(
-                            InterpretterError::ShortCircuitBinOpErrorTwo(
-                                span.clone(),
-                                left_val,
-                                *op,
-                                v,
-                            ),
-                        ))
+                        return Err(FlowControl::Error(Error::ShortCircuitBinOpErrorTwo(
+                            span.clone(),
+                            left_val,
+                            op,
+                            v,
+                        )))
                     }
                 }
             }
@@ -248,9 +250,11 @@ impl Interpretter {
             (Value::Str(s), Pipe) => self.pipe(s.chars().map(Value::Char), right, span)?,
             (Value::Iterable(iter), Pipe) => self.pipe(iter, right, span)?,
             (_, op) => {
-                return Err(FlowControl::Error(
-                    InterpretterError::ShortCircuitBinOpErrorOne(span.clone(), left_val, *op),
-                ))
+                return Err(FlowControl::Error(Error::ShortCircuitBinOpErrorOne(
+                    span.clone(),
+                    left_val,
+                    op,
+                )))
             }
         };
         Ok(val)
@@ -284,59 +288,43 @@ impl Interpretter {
         rest: &[(FlatBinOpKind, Box<UntypedExpr>)],
     ) -> InterpretterResult {
         let mut result = self.expr(first)?;
-        for (op, expr) in rest.iter() {
+        for (op, expr) in rest {
             let right_val = self.expr(expr)?;
             result = match (result, op, right_val) {
                 (Value::Str(l), FlatBinOpKind::CmpEquals, Value::Str(r)) => {
-                    if rest.len() > 1 {
-                        panic!("Chained comparisons not implmented yet")
-                    }
+                    assert!(rest.len() < 2, "Chained comparisons not implmented yet");
                     Value::Bool(l == r)
                 }
                 (Value::Str(l), FlatBinOpKind::CmpNotEquals, Value::Str(r)) => {
-                    if rest.len() > 1 {
-                        panic!("Chained comparisons not implmented yet")
-                    }
+                    assert!(rest.len() < 2, "Chained comparisons not implmented yet");
                     Value::Bool(l != r)
                 }
                 (Value::Char(l), FlatBinOpKind::LessThanOrEqual, Value::Char(r)) => {
-                    if rest.len() > 1 {
-                        panic!("Chained comparisons not implmented yet")
-                    }
+                    assert!(rest.len() < 2, "Chained comparisons not implmented yet");
                     Value::Bool(l <= r)
                 }
                 (Value::Char(l), FlatBinOpKind::LessThan, Value::Char(r)) => {
-                    if rest.len() > 1 {
-                        panic!("Chained comparisons not implmented yet")
-                    }
+                    assert!(rest.len() < 2, "Chained comparisons not implmented yet");
                     Value::Bool(l < r)
                 }
                 (Value::Integer(l), FlatBinOpKind::CmpEquals, Value::Integer(r)) => {
-                    if rest.len() > 1 {
-                        panic!("Chained comparisons not implmented yet")
-                    }
+                    assert!(rest.len() < 2, "Chained comparisons not implmented yet");
                     Value::Bool(l == r)
                 }
                 (Value::Integer(l), FlatBinOpKind::GreaterThan, Value::Integer(r)) => {
-                    if rest.len() > 1 {
-                        panic!("Chained comparisons not implmented yet")
-                    }
+                    assert!(rest.len() < 2, "Chained comparisons not implmented yet");
                     Value::Bool(l > r)
                 }
                 (Value::Integer(l), FlatBinOpKind::LessThan, Value::Integer(r)) => {
-                    if rest.len() > 1 {
-                        panic!("Chained comparisons not implmented yet")
-                    }
+                    assert!(rest.len() < 2, "Chained comparisons not implmented yet");
                     Value::Bool(l < r)
                 }
                 (Value::Integer(l), FlatBinOpKind::LessThanOrEqual, Value::Integer(r)) => {
-                    if rest.len() > 1 {
-                        panic!("Chained comparisons not implmented yet")
-                    }
+                    assert!(rest.len() < 2, "Chained comparisons not implmented yet");
                     Value::Bool(l <= r)
                 }
                 (l, op, r) => {
-                    return Err(FlowControl::Error(InterpretterError::FlatBinOpError(
+                    return Err(FlowControl::Error(Error::FlatBinOp(
                         span.clone(),
                         l,
                         *op,
@@ -351,25 +339,25 @@ impl Interpretter {
     fn assignment(
         &mut self,
         left: &UntypedLValue,
-        _op: &AssignmentKind,
+        op: AssignmentKind,
         right: &UntypedExpr,
         span: &Span,
     ) -> InterpretterResult {
         let right = self.expr(right)?;
-        self.assignment_one(&left.value, _op, right, span)
+        self.assignment_one(&left.value, op, right, span)
     }
 
     fn try_assignment(
         &mut self,
         left: &UntypedExpr,
-        op: &AssignmentKind,
+        op: AssignmentKind,
         right: Value,
         span: &Span,
     ) -> InterpretterResult {
         match &left.value {
-            UntypedExprKind::RValue(_) => Err(FlowControl::Error(
-                InterpretterError::CannotAssign(span.clone()),
-            )),
+            UntypedExprKind::RValue(_) => {
+                Err(FlowControl::Error(Error::CannotAssign(span.clone())))
+            }
             UntypedExprKind::LValue(l) => self.assignment_one(l, op, right, span),
         }
     }
@@ -377,15 +365,15 @@ impl Interpretter {
     fn assignment_one(
         &mut self,
         left: &LValueKind,
-        _op: &AssignmentKind,
+        op: AssignmentKind,
         right: Value,
         span: &Span,
     ) -> InterpretterResult {
         match (left, right.clone()) {
             (LValueKind::Variable(ref s), right) => match self.scopes.get_mut(s) {
-                Some(v) => *v = right.clone(),
+                Some(v) => *v = right,
                 None => {
-                    return Err(FlowControl::Error(InterpretterError::NoSuchVariable(
+                    return Err(FlowControl::Error(Error::NoSuchVariable(
                         span.clone(),
                         s.clone(),
                     )))
@@ -393,38 +381,31 @@ impl Interpretter {
             },
             (LValueKind::Tuple(lvals), Value::Tuple(t) | Value::Array(t)) => {
                 if lvals.len() != t.len() {
-                    return Err(FlowControl::Error(
-                        InterpretterError::AssignmentLengthMismatch(
-                            span.clone(),
-                            lvals.len(),
-                            right,
-                        ),
-                    ));
+                    return Err(FlowControl::Error(Error::AssignmentLengthMismatch(
+                        span.clone(),
+                        lvals.len(),
+                        right,
+                    )));
                 }
                 for (l, r) in lvals.iter().zip(t) {
-                    self.try_assignment(l, _op, r, span)?;
+                    self.try_assignment(l, op, r, span)?;
                 }
             }
+            #[allow(clippy::manual_let_else)]
             (LValueKind::BracketExpr { left, subscript }, val) => {
                 let left = match left.value {
                     UntypedExprKind::LValue(LValueKind::Variable(ref s)) => s,
                     _ => todo!(),
                 };
                 let idx = self.expr(subscript)?;
-                let left = match self.scopes.get_mut(left) {
-                    Some(l) => l,
-                    None => {
-                        return Err(FlowControl::Error(InterpretterError::NoSuchVariable(
-                            span.clone(),
-                            left.clone(),
-                        )))
-                    }
+                let Some(left) = self.scopes.get_mut(left) else {
+                    return Err(Error::NoSuchVariable(span.clone(), left.clone()))?;
                 };
                 let Value::Integer(idx) = idx else {
                     todo!();
                 };
                 match left {
-                    Value::Array(a) => a[idx as usize] = val,
+                    Value::Array(a) => a[usize::try_from(idx).map_err(Error::BadConversion)?] = val,
                     _ => todo!(),
                 }
             }
@@ -441,8 +422,7 @@ impl Interpretter {
     ) -> InterpretterResult {
         let right = self.expr(items)?;
         let items_vec = match right {
-            Value::Tuple(v) => v,
-            Value::Array(v) => v,
+            Value::Tuple(v) | Value::Array(v) => v,
             Value::Str(s) => s.chars().map(Value::Char).collect(),
             Value::Iterable(iterable) => {
                 for val in iterable {
@@ -455,13 +435,13 @@ impl Interpretter {
                 return Ok(Value::None);
             }
             _ => {
-                return Err(FlowControl::Error(InterpretterError::CannotIterateOver(
+                return Err(FlowControl::Error(Error::CannotIterateOver(
                     items.span.clone(),
                     right,
                 )))
             }
         };
-        for val in items_vec.iter() {
+        for val in items_vec {
             match item.value {
                 LValueKind::Variable(ref s) => self.scopes.insert(s.clone(), val.clone()),
                 _ => todo!(),
@@ -471,11 +451,7 @@ impl Interpretter {
         Ok(Value::None)
     }
 
-    fn if_(
-        &mut self,
-        condition: &UntypedExpr,
-        body: &UntypedExpr,
-    ) -> InterpretterResult {
+    fn if_(&mut self, condition: &UntypedExpr, body: &UntypedExpr) -> InterpretterResult {
         let condition_val = self.expr(condition)?;
         match condition_val {
             Value::Bool(true) => {
@@ -483,7 +459,7 @@ impl Interpretter {
             }
             Value::Bool(false) => {}
             _ => {
-                return Err(FlowControl::Error(InterpretterError::NonBoolIfCondition(
+                return Err(FlowControl::Error(Error::NonBoolIfCondition(
                     condition.span.clone(),
                     condition_val,
                 )))
@@ -493,12 +469,10 @@ impl Interpretter {
     }
 
     fn variable(&mut self, span: &Span, name: &str) -> InterpretterResult {
-        self.scopes.get(name).cloned().ok_or_else(|| {
-            FlowControl::Error(InterpretterError::NoSuchVariable(
-                span.clone(),
-                name.to_owned(),
-            ))
-        })
+        self.scopes
+            .get(name)
+            .cloned()
+            .ok_or_else(|| FlowControl::Error(Error::NoSuchVariable(span.clone(), name.to_owned())))
     }
 
     fn block(&mut self, exprs: &[UntypedExpr]) -> InterpretterResult {
@@ -529,7 +503,7 @@ impl Interpretter {
                 self.scopes.close();
                 result
             }
-            _ => Err(FlowControl::Error(InterpretterError::NotCallable(
+            _ => Err(FlowControl::Error(Error::NotCallable(
                 span.clone(),
                 callable.clone(),
             ))),
@@ -552,14 +526,16 @@ impl Interpretter {
 
     fn lambda_arg(&mut self, num: usize, span: &Span) -> InterpretterResult {
         assert!(!self.lambda_args.is_empty());
-        if num >= self.lambda_args.last().unwrap().len() {
-            return Err(FlowControl::Error(InterpretterError::NotEnoughArguments(
+        #[allow(clippy::unwrap_used)]
+        let args = self.lambda_args.last().unwrap();
+        if num >= args.len() {
+            return Err(FlowControl::Error(Error::NotEnoughArguments(
                 span.clone(),
                 num,
                 self.lambda_args.len(),
             )));
         }
-        Ok(self.lambda_args.last().unwrap()[num].clone())
+        Ok(args[num].clone())
     }
 
     fn pipe<T: Iterator<Item = Value>>(
@@ -588,43 +564,21 @@ impl Interpretter {
         let left = self.expr(left)?;
         let subscript = self.expr(subscript)?;
         match (&left, &subscript) {
-            (Value::Array(a), Value::Integer(i)) => {
-                if *i < 0 || *i as usize >= a.len() {
+            (Value::Array(a) | Value::Tuple(a), Value::Integer(i)) => {
+                // This does not bring joy
+                let b = usize::try_from(*i).map_err(Error::BadConversion);
+                if *i < 0 || b.clone()? > a.len() {
                     let l = a.len();
-                    Err(FlowControl::Error(InterpretterError::IndexOutOfBound(
-                        span.clone(),
-                        left,
-                        subscript,
-                        l,
-                    )))
+                    Err(Error::IndexOutOfBound(span.clone(), left, subscript, l))?
                 } else {
-                    Ok(a[*i as usize].clone())
+                    Ok(a[b?].clone())
                 }
             }
-            (Value::Tuple(a), Value::Integer(i)) => {
-                if *i < 0 || *i as usize >= a.len() {
-                    let l = a.len();
-                    Err(FlowControl::Error(InterpretterError::IndexOutOfBound(
-                        span.clone(),
-                        left,
-                        subscript,
-                        l,
-                    )))
-                } else {
-                    Ok(a[*i as usize].clone())
-                }
-            }
-            (_, _) => Err(FlowControl::Error(InterpretterError::CannotIndex(
-                span.clone(),
-                left,
-            ))),
+            (_, _) => Err(FlowControl::Error(Error::CannotIndex(span.clone(), left))),
         }
     }
 
-    fn multiexpr_common(
-        &mut self,
-        values: &[UntypedExpr],
-    ) -> Result<Vec<Value>, FlowControl> {
+    fn multiexpr_common(&mut self, values: &[UntypedExpr]) -> Result<Vec<Value>, FlowControl> {
         values.iter().map(|v| self.expr(v)).collect()
     }
 
