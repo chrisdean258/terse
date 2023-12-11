@@ -27,6 +27,7 @@ pub struct Lexer {
 
 impl Iterator for Lexer {
     type Item = Result<Token, LexError>;
+    #[allow(clippy::too_many_lines)]
     fn next(&mut self) -> Option<Self::Item> {
         use TokenKind::*;
         while let Some(c) = self.next_if(char::is_whitespace) {
@@ -336,7 +337,7 @@ impl Lexer {
     }
 }
 
-#[allow(clippy::unwrap_in_tests)]
+#[allow(clippy::unwrap_used)]
 #[cfg(test)]
 mod tests {
     macro_rules! test_lex {
@@ -346,6 +347,8 @@ mod tests {
     }
     use super::*;
 
+    // This is Ok because the cognitive complexity is managed with a macro
+    #[allow(clippy::cognitive_complexity)]
     #[test]
     fn sequence() {
         let test = "\"this is as\" 1 \"ssfsd\"\"lsdkfjsd\" 1 12 12.12 12. 1 true false";
@@ -404,7 +407,7 @@ mod tests {
             TokenKind::DoubleAmpersandEquals,
         ];
 
-        let ops: Vec<String> = operators.iter().map(|o| o.to_string()).collect();
+        let ops: Vec<String> = operators.iter().map(ToString::to_string).collect();
         let ops = ops.join(" ");
 
         let l = Lexer::new("operators".to_owned(), ops.chars().collect());
