@@ -29,9 +29,9 @@ impl Iterator for Lexer {
     type Item = Result<Token, LexError>;
     fn next(&mut self) -> Option<Self::Item> {
         use TokenKind::*;
-        while let Some(c) = self.next_if(|c| c.is_whitespace()) {
+        while let Some(c) = self.next_if(char::is_whitespace) {
             if c == '\n' {
-                self.meta.newlines.borrow_mut().push(self.cursor - 1)
+                self.meta.newlines.borrow_mut().push(self.cursor - 1);
             }
         }
         let start_idx = self.cursor;
@@ -56,10 +56,10 @@ impl Iterator for Lexer {
             }};
         }
         match lc {
-            '0'..='9' => Some(self.num(lc, start_idx)),
+            '0'..='9' => Some(Ok(self.num(lc, start_idx))),
             '"' => Some(self.string(lc, start_idx)),
             '\'' => Some(self.char_(lc, start_idx)),
-            '_' | 'a'..='z' | 'A'..='Z' => Some(self.identifier_or_keyword(lc, start_idx)),
+            '_' | 'a'..='z' | 'A'..='Z' => Some(Ok(self.identifier_or_keyword(lc, start_idx))),
             '=' => lex_tree!(SingleEquals, {
                 '=' => DoubleEquals,
                 '>' => FatArrow,
@@ -134,10 +134,10 @@ impl Iterator for Lexer {
             '}' => lex_tree!(CloseBrace),
             '$' => lex_tree!(DollarSign),
             '\\' => {
-                if let Some(nc) = self.next_if(|c| c.is_numeric()) {
+                if let Some(nc) = self.next_if(char::is_numeric) {
                     let mut num = String::new();
                     num.push(nc);
-                    self.collect_while(|c| c.is_numeric(), &mut num);
+                    self.collect_while(char::is_numeric, &mut num);
                     let num = num.parse().expect("Parsing on only numeric characters");
                     Some(Ok(Token {
                         span: self.span_to_here(start_idx),
@@ -152,7 +152,7 @@ impl Iterator for Lexer {
     }
 }
 
-fn escape_char(c: char) -> char {
+const fn escape_char(c: char) -> char {
     match c {
         'n' => '\n',
         't' => '\t',
@@ -242,35 +242,35 @@ impl Lexer {
         }
     }
 
-    fn num(&mut self, lc: char, start_idx: usize) -> Result<Token, LexError> {
+    fn num(&mut self, lc: char, start_idx: usize) -> Token {
         let mut nums = String::new();
         nums.push(lc);
-        self.collect_while(|c| c.is_numeric(), &mut nums);
+        self.collect_while(char::is_numeric, &mut nums);
         let int_val = nums.parse().expect("numerical string failed to parse");
         let Some('.') = self.next_if(|c| c == '.') else {
-            return Ok(Token {
+            return Token {
                 span: self.span_to_here(start_idx),
                 value: TokenKind::Integer(int_val),
-            });
+            };
         };
         nums.push('.');
         let l = nums.len();
-        self.collect_while(|c| c.is_numeric(), &mut nums);
+        self.collect_while(char::is_numeric, &mut nums);
         //we didn't get any more characters so we will let the number and dot be lexed separately
         if nums.len() == l {
             self.cursor -= 1;
-            return Ok(Token {
+            return Token {
                 span: self.span_to_here(start_idx),
                 value: TokenKind::Integer(int_val),
-            });
+            };
         }
-        Ok(Token {
+        Token {
             span: self.span_to_here(start_idx),
             value: TokenKind::Float(
                 nums.parse()
                     .expect("numerical string failed to parse as int"),
             ),
-        })
+        }
     }
 
     fn char_(&mut self, _start_quote: char, start_idx: usize) -> Result<Token, LexError> {
@@ -301,28 +301,24 @@ impl Lexer {
             },
             &mut chars,
         );
-        if let Some('"') = self.next_if(|c| c == '"') {
-            let span = self.span_to_here(start_idx);
+        let is_quote = Some('"') == self.next_if(|c| c == '"');
+        let span = self.span_to_here(start_idx);
+        if is_quote {
             Ok(Token {
                 span,
                 value: TokenKind::Str(escape(&chars)),
             })
         } else {
-            let span = self.span_to_here(start_idx);
             Err(LexError::EOFString(span))
         }
     }
 
-    fn identifier_or_keyword(
-        &mut self,
-        start_char: char,
-        start_idx: usize,
-    ) -> Result<Token, LexError> {
+    fn identifier_or_keyword(&mut self, start_char: char, start_idx: usize) -> Token {
         let mut id = String::new();
         id.push(start_char);
         self.collect_while(|c| c == '_' || c.is_alphabetic() || c.is_numeric(), &mut id);
 
-        Ok(Token {
+        Token {
             span: self.span_to_here(start_idx),
             value: match id.as_str() {
                 "true" => TokenKind::Bool(true),
@@ -336,10 +332,11 @@ impl Lexer {
                 "var" => TokenKind::Var,
                 _ => TokenKind::Identifier(id),
             },
-        })
+        }
     }
 }
 
+#[allow(clippy::unwrap_in_tests)]
 #[cfg(test)]
 mod tests {
     macro_rules! test_lex {
@@ -366,7 +363,7 @@ mod tests {
         test_lex!(l => TokenKind::Integer(1));
         test_lex!(l => TokenKind::Bool(true));
         test_lex!(l => TokenKind::Bool(false));
-        assert!(l.next().is_none())
+        assert!(l.next().is_none());
     }
 
     #[test]
@@ -438,7 +435,8 @@ mod tests {
             panic!("Lexer did not yield Float token");
         };
 
-        assert_eq!(s, 1.2);
+        let delta = 0.000_000_000_1;
+        assert!(s <= 1.2 - delta && s >= 1.2 + delta);
     }
 
     #[test]
@@ -470,7 +468,7 @@ mod tests {
         assert_eq!(span!(l).to_string(), "test:3,23-3,24");
         assert_eq!(span!(l).to_string(), "test:3,25");
         assert_eq!(span!(l).to_string(), "test:3,27");
-        assert!(l.next().is_none())
+        assert!(l.next().is_none());
     }
 
     #[test]
@@ -489,7 +487,7 @@ mod tests {
         test_lex!(l => TokenKind::Comma);
         test_lex!(l => TokenKind::Integer(4));
         test_lex!(l => TokenKind::CloseParen);
-        assert!(l.next().is_none())
+        assert!(l.next().is_none());
     }
 
     #[test]
@@ -500,6 +498,6 @@ mod tests {
         test_lex!(l => TokenKind::OpenParen);
         test_lex!(l => TokenKind::Identifier(_));
         test_lex!(l => TokenKind::Comma);
-        assert!(l.next().is_none())
+        assert!(l.next().is_none());
     }
 }

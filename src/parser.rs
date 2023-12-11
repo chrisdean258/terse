@@ -1,3 +1,4 @@
+#![allow(needless_pass_by_value)]
 use crate::{
     expression::{
         AssignmentKind, BinOpKind, DeclarationKind, FlatBinOpKind, LValueKind, RValueKind,
@@ -213,7 +214,8 @@ where
     }
 
     fn comma(&mut self, token: Token) -> ParseResult {
-        let mut exprs = vec![self.pipe(token)?];
+        let mut expr = self.pipe(token)?;
+        let mut exprs = Vec::new();
         let mut force_tuple = false;
         while let Some(sep) = self.lexer.next() {
             let sep = sep?;
@@ -226,14 +228,22 @@ where
                 break;
             };
             force_tuple = true;
-            exprs.push(self.pipe(token?)?);
+            exprs.push(expr);
+            expr = self.pipe(token?)?;
         }
-        if exprs.len() == 1 && !force_tuple {
-            return Ok(exprs.pop().unwrap());
+        if exprs.is_empty() && !force_tuple {
+            return Ok(expr);
         }
 
+        let span = if let Some(e) = exprs.first() {
+            e.span.to(&expr.span)
+        } else {
+            expr.span.clone()
+        };
+        exprs.push(expr);
+
         Ok(UntypedExpr {
-            span: exprs.first().unwrap().span.to(&exprs.last().unwrap().span),
+            span,
             value: UntypedExprKind::LValue(LValueKind::Tuple(exprs)),
         })
     }
@@ -436,7 +446,7 @@ where
                 return Err(ParseError::UnexpectedEOF("expression expression in block"));
             };
             let token = token?;
-            if let TokenKind::CloseBrace = token.value {
+            if TokenKind::CloseBrace == token.value {
                 return Ok(UntypedExpr {
                     span: open_brace_token.span.to(&token.span),
                     value: UntypedExprKind::RValue(RValueKind::Block(exprs)),
@@ -490,7 +500,7 @@ where
         } = token
         else {
             return Err(ParseError::UnexpectedToken {
-                expected: vec![TokenKind::Identifier("".into())],
+                expected: vec![TokenKind::Identifier(String::new())],
                 found: token,
             });
         };

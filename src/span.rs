@@ -13,11 +13,11 @@ pub struct Span {
 }
 
 impl Span {
-    pub fn to(&self, other: &Self) -> Span {
+    pub fn to(&self, other: &Self) -> Self {
         let from = min(self.from, other.from);
         let to = max(self.to, other.to);
         let meta = self.meta.clone();
-        Span { from, to, meta }
+        Self { meta, from, to }
     }
 }
 

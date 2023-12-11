@@ -16,9 +16,8 @@ fn usage() -> ExitCode {
 fn main() -> ExitCode {
     let mut args = env::args();
     let _program = args.next().expect("no program name");
-    let program_file = match args.next() {
-        Some(a) => a,
-        None => return usage(),
+    let Some(program_file) = args.next() else {
+        return usage();
     };
     match read_and_run(&program_file) {
         Ok(_) => ExitCode::SUCCESS,
@@ -43,7 +42,7 @@ fn run(name: &str, program: &str) -> Result<value::Value, Box<dyn Error>> {
 
     let l = lexer::Lexer::new(name.to_owned(), program.chars().collect());
     // for t in l {
-        // println!("{:?}", t?.value);
+    // println!("{:?}", t?.value);
     // }
     // return Ok(value::Value::None);
     let t = parser::parse(l)?;

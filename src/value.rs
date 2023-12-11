@@ -51,27 +51,27 @@ impl Display for Value {
             Self::Char(c) => write!(f, "{c}"),
             Self::Tuple(tup) => {
                 let mut first = true;
-                for value in tup.iter() {
+                for value in tup {
                     if first {
                         write!(f, "(")?;
                         first = false;
                     } else {
                         write!(f, ", ")?;
                     }
-                    write!(f, "{value}")?
+                    write!(f, "{value}")?;
                 }
                 write!(f, ")")
             }
             Self::Array(arr) => {
                 let mut first = true;
-                for value in arr.iter() {
+                for value in arr {
                     if first {
                         write!(f, "[")?;
                         first = false;
                     } else {
                         write!(f, ", ")?;
                     }
-                    write!(f, "{value:?}")?
+                    write!(f, "{value:?}")?;
                 }
                 write!(f, "]")
             }
@@ -93,27 +93,27 @@ impl Debug for Value {
             Self::Char(c) => write!(f, "{c}"),
             Self::Tuple(tup) => {
                 let mut first = true;
-                for value in tup.iter() {
+                for value in tup {
                     if first {
                         write!(f, "(")?;
                         first = false;
                     } else {
                         write!(f, ", ")?;
                     }
-                    write!(f, "{value}")?
+                    write!(f, "{value}")?;
                 }
                 write!(f, ")")
             }
             Self::Array(arr) => {
                 let mut first = true;
-                for value in arr.iter() {
+                for value in arr {
                     if first {
                         write!(f, "[")?;
                         first = false;
                     } else {
                         write!(f, ", ")?;
                     }
-                    write!(f, "{value:?}")?
+                    write!(f, "{value:?}")?;
                 }
                 write!(f, "]")
             }
