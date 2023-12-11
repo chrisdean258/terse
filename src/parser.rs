@@ -1,4 +1,4 @@
-#![allow(needless_pass_by_value)]
+#![allow(clippy::needless_pass_by_value)]
 use crate::{
     expression::{
         AssignmentKind, BinOpKind, DeclarationKind, FlatBinOpKind, LValueKind, RValueKind,
