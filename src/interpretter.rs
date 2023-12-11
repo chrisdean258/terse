@@ -1,7 +1,7 @@
 use crate::{
     expression::{
-        AssignmentKind, BinOpKind, FlatBinOpKind, LValueKind, RValueKind, ShortCircuitBinOpKind,
-        UntypedExpression, UntypedExpressionKind, UntypedLValue,
+        AssignmentKind, BinOpKind, DeclarationKind, FlatBinOpKind, LValueKind, RValueKind,
+        ShortCircuitBinOpKind, UntypedExpression, UntypedExpressionKind, UntypedLValue,
     },
     intrinsics::intrinsics,
     parser::Ast,
@@ -68,18 +68,11 @@ impl ScopeTable {
             scopes: vec![presets],
         }
     }
-    pub fn insert(&mut self, key: &str, val: Value) {
-        match self.get_mut(key) {
-            Some(v) => {
-                *v = val;
-            }
-            None => {
-                self.scopes
-                    .last_mut()
-                    .expect("scopes is empty")
-                    .insert(key.into(), val);
-            }
-        }
+    pub fn insert(&mut self, key: String, val: Value) {
+        self.scopes
+            .last_mut()
+            .expect("scopes is empty")
+            .insert(key, val);
     }
 
     pub fn get(&mut self, key: &str) -> Option<&Value> {
@@ -165,6 +158,9 @@ impl Interpretter {
                 RValueKind::Lambda(subexpr) => Ok(Value::Lambda(subexpr.clone())),
                 RValueKind::LambdaArg(i) => self.lambda_arg(*i, &expr.span),
                 RValueKind::Array(a) => self.array(a),
+                RValueKind::Declaration { kind, name, value } => {
+                    self.declaration(*kind, name.clone(), value)
+                }
             },
             UntypedExpressionKind::LValue(l) => self.lval(l, &expr.span),
         }
@@ -388,7 +384,15 @@ impl Interpretter {
         span: &Span,
     ) -> InterpretterResult {
         match (left, right.clone()) {
-            (LValueKind::Variable(ref s), right) => self.scopes.insert(s, right.clone()),
+            (LValueKind::Variable(ref s), right) => match self.scopes.get_mut(s) {
+                Some(v) => *v = right.clone(),
+                None => {
+                    return Err(FlowControl::Error(InterpretterError::NoSuchVariable(
+                        span.clone(),
+                        s.clone(),
+                    )))
+                }
+            },
             (LValueKind::Tuple(lvals), Value::Tuple(t) | Value::Array(t)) => {
                 if lvals.len() != t.len() {
                     return Err(FlowControl::Error(
@@ -449,7 +453,7 @@ impl Interpretter {
                 #[allow(clippy::while_let_on_iterator)]
                 while let Some(val) = iterable.next() {
                     match item.value {
-                        LValueKind::Variable(ref s) => self.scopes.insert(s, val.clone()),
+                        LValueKind::Variable(ref s) => self.scopes.insert(s.clone(), val.clone()),
                         _ => todo!(),
                     };
                     self.expr(body)?;
@@ -465,7 +469,7 @@ impl Interpretter {
         };
         for val in items_vec.iter() {
             match item.value {
-                LValueKind::Variable(ref s) => self.scopes.insert(s, val.clone()),
+                LValueKind::Variable(ref s) => self.scopes.insert(s.clone(), val.clone()),
                 _ => todo!(),
             };
             self.expr(body)?;
@@ -504,10 +508,12 @@ impl Interpretter {
     }
 
     fn block(&mut self, exprs: &[UntypedExpression]) -> InterpretterResult {
+        self.scopes.open();
         let mut val = Value::None;
         for e in exprs {
             val = self.expr(e)?;
         }
+        self.scopes.close();
         Ok(val)
     }
 
@@ -634,5 +640,16 @@ impl Interpretter {
 
     fn array(&mut self, values: &[UntypedExpression]) -> InterpretterResult {
         Ok(Value::Array(self.multiexpr_common(values)?))
+    }
+
+    fn declaration(
+        &mut self,
+        _kind: DeclarationKind,
+        name: String,
+        value: &UntypedExpression,
+    ) -> InterpretterResult {
+        let value = self.expr(value)?;
+        self.scopes.insert(name, value.clone());
+        Ok(value)
     }
 }

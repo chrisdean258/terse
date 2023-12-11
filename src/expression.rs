@@ -43,8 +43,19 @@ pub enum LValueKind {
     Tuple(Vec<UntypedExpression>),
 }
 
+#[derive(Debug, Clone, Copy)]
+pub enum DeclarationKind {
+    Let,
+    Var,
+}
+
 #[derive(Debug)]
 pub enum RValueKind {
+    Declaration {
+        kind: DeclarationKind,
+        name: String,
+        value: SubExpr,
+    },
     Integer(i64),
     Float(f64),
     Str(String),
@@ -243,6 +254,7 @@ impl Display for RValueKind {
                 }
                 write!(f, "]")
             }
+            Self::Declaration { kind, name, value } => write!(f, "{kind} {name} = {value}"),
         }
     }
 }
@@ -282,5 +294,13 @@ impl Display for UntypedExpressionKind {
 impl Display for UntypedExpression {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
         write!(f, "{}", self.value)
+    }
+}
+impl Display for DeclarationKind {
+    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
+        match self {
+            Self::Let => write!(f, "let"),
+            Self::Var => write!(f, "var"),
+        }
     }
 }

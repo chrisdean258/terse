@@ -76,6 +76,8 @@ pub enum TokenKind {
     If,
     Function,
     While,
+    Let,
+    Var,
 }
 
 impl Display for TokenKind {
@@ -148,6 +150,8 @@ impl Display for TokenKind {
             Self::If => write!(f, "if"),
             Self::Function => write!(f, "fn"),
             Self::While => write!(f, "while"),
+            Self::Let => write!(f, "let"),
+            Self::Var => write!(f, "var"),
         }
     }
 }

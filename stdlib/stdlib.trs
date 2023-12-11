@@ -1,19 +1,19 @@
-int = \{
-	val = 0
+let int = \{
+	var val = 0
 	for c in \0 {
 		val = val * 10 + (c - '0')
 	}
 	val
 }
 
-filter = \{
-        rv = {}
+let filter = \{
+        var rv = {}
         if \1(\0) rv = \0
         rv
 }
 
-sum = \{
-	s = 0
+let sum = \{
+	var s = 0
 	for v in \0 {
 		s = s + v
 	}

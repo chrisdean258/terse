@@ -1,7 +1,7 @@
 use crate::{
     expression::{
-        AssignmentKind, BinOpKind, FlatBinOpKind, LValueKind, RValueKind, ShortCircuitBinOpKind,
-        UntypedExpression, UntypedExpressionKind, UntypedLValue,
+        AssignmentKind, BinOpKind, DeclarationKind, FlatBinOpKind, LValueKind, RValueKind,
+        ShortCircuitBinOpKind, UntypedExpression, UntypedExpressionKind, UntypedLValue,
     },
     lexer::LexError,
     span::Span,
@@ -171,6 +171,7 @@ where
         match token.value {
             TokenKind::For => self.for_(token),
             TokenKind::If => self.if_(token),
+            TokenKind::Let | TokenKind::Var => self.declaration(token),
             _ => self.equals(token),
         }
     }
@@ -472,6 +473,42 @@ where
         Ok(UntypedExpression {
             span: if_token.span.to(&body.span),
             value: UntypedExpressionKind::RValue(RValueKind::If { condition, body }),
+        })
+    }
+
+    fn declaration(&mut self, decl_type: Token) -> ParseResult {
+        let kind = match decl_type.value {
+            TokenKind::Let => DeclarationKind::Let,
+            TokenKind::Var => DeclarationKind::Var,
+            _ => unreachable!("Only pass tokens of type Let and Var into parser.declaration()"),
+        };
+        let token = self.must_next_token("variable name")?;
+        let Token {
+            span: _,
+            value: TokenKind::Identifier(name),
+        } = token
+        else {
+            return Err(ParseError::UnexpectedToken {
+                expected: vec![TokenKind::Identifier("".into())],
+                found: token,
+            });
+        };
+        let token = self.must_next_token("`=`")?;
+        let Token {
+            span: _,
+            value: TokenKind::SingleEquals,
+        } = token
+        else {
+            return Err(ParseError::UnexpectedToken {
+                expected: vec![TokenKind::SingleEquals],
+                found: token,
+            });
+        };
+        let token = self.must_next_token("expression")?;
+        let value = Box::new(self.expr(token)?);
+        Ok(UntypedExpression {
+            span: decl_type.span.to(&value.span),
+            value: UntypedExpressionKind::RValue(RValueKind::Declaration { kind, name, value }),
         })
     }
 }
