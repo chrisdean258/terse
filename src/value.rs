@@ -13,9 +13,9 @@ pub enum Value {
     Str(String),
     Tuple(Vec<Value>),
     Bool(bool),
-    Array(Vec<Value>),
+    Array(Rc<RefCell<Vec<Value>>>),
     Char(char),
-    ExternalFunc(fn(&[Value]) -> Value),
+    ExternalFunc(fn(&mut [Value]) -> Value),
     Lambda(Rc<UntypedExpr>),
     Iterable(Iterable),
 }
@@ -40,6 +40,12 @@ impl Iterable {
     }
 }
 
+impl Value {
+    pub fn array(vals: Vec<Value>) -> Value {
+        Self::Array(Rc::new(RefCell::new(vals)))
+    }
+}
+
 impl Display for Value {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
         match self {
@@ -51,26 +57,24 @@ impl Display for Value {
             Self::Char(c) => write!(f, "{c}"),
             Self::Tuple(tup) => {
                 let mut first = true;
+                write!(f, "(")?;
                 for value in tup {
-                    if first {
-                        write!(f, "(")?;
-                        first = false;
-                    } else {
+                    if !first {
                         write!(f, ", ")?;
                     }
-                    write!(f, "{value}")?;
+                    first = false;
+                    write!(f, "{value:?}")?;
                 }
                 write!(f, ")")
             }
             Self::Array(arr) => {
                 let mut first = true;
-                for value in arr {
-                    if first {
-                        write!(f, "[")?;
-                        first = false;
-                    } else {
+                write!(f, "[")?;
+                for value in arr.borrow().iter() {
+                    if !first {
                         write!(f, ", ")?;
                     }
+                    first = false;
                     write!(f, "{value:?}")?;
                 }
                 write!(f, "]")
@@ -93,26 +97,24 @@ impl Debug for Value {
             Self::Char(c) => write!(f, "{c}"),
             Self::Tuple(tup) => {
                 let mut first = true;
+                write!(f, "(")?;
                 for value in tup {
-                    if first {
-                        write!(f, "(")?;
-                        first = false;
-                    } else {
+                    if !first {
                         write!(f, ", ")?;
                     }
-                    write!(f, "{value}")?;
+                    first = false;
+                    write!(f, "{value:?}")?;
                 }
                 write!(f, ")")
             }
             Self::Array(arr) => {
                 let mut first = true;
-                for value in arr {
-                    if first {
-                        write!(f, "[")?;
-                        first = false;
-                    } else {
+                write!(f, "[")?;
+                for value in arr.borrow().iter() {
+                    if !first {
                         write!(f, ", ")?;
                     }
+                    first = false;
                     write!(f, "{value:?}")?;
                 }
                 write!(f, "]")

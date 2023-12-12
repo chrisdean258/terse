@@ -8,7 +8,7 @@ use crate::{
     span::Span,
     value::Value,
 };
-use std::collections::HashMap;
+use std::{cell::RefCell, collections::HashMap, rc::Rc};
 use thiserror::Error;
 
 pub struct Interpretter {
@@ -260,9 +260,15 @@ impl Interpretter {
                 }
             }
             (_a, InvertedCall) => self.invert_call_or_call(left_val, right, span)?,
-            (Value::Array(a), Pipe) => self.pipe(a.clone().into_iter(), right, span)?,
-            (Value::Str(s), Pipe) => self.pipe(s.chars().map(Value::Char), right, span)?,
-            (Value::Iterable(iter), Pipe) => self.pipe(iter, right, span)?,
+            (Value::Array(a), Pipe) => self.pipe(a.borrow().iter(), right, span)?,
+            (Value::Str(s), Pipe) => {
+                let items = s.chars().map(Value::Char).collect::<Vec<_>>();
+                self.pipe(items.iter(), right, span)?
+            }
+            (Value::Iterable(iter), Pipe) => {
+                let items = iter.collect::<Vec<_>>();
+                self.pipe(items.iter(), right, span)?
+            }
             (_, op) => {
                 return Err(FlowControl::Error(Error::ShortCircuitBinOpErrorOne(
                     span.clone(),
@@ -399,7 +405,7 @@ impl Interpretter {
                     )))
                 }
             },
-            (LValueKind::Tuple(lvals), Value::Tuple(t) | Value::Array(t)) => {
+            (LValueKind::Tuple(lvals), Value::Tuple(t)) => {
                 if lvals.len() != t.len() {
                     return Err(FlowControl::Error(Error::AssignmentLengthMismatch(
                         span.clone(),
@@ -411,6 +417,20 @@ impl Interpretter {
                     self.try_assignment(l, op, r, span)?;
                 }
             }
+
+            (LValueKind::Tuple(lvals), Value::Array(t)) => {
+                if lvals.len() != t.borrow().len() {
+                    return Err(FlowControl::Error(Error::AssignmentLengthMismatch(
+                        span.clone(),
+                        lvals.len(),
+                        right,
+                    )));
+                }
+                for (l, r) in lvals.iter().zip(t.borrow().iter()) {
+                    self.try_assignment(l, op, r.clone(), span)?;
+                }
+            }
+
             #[allow(clippy::manual_let_else)]
             (LValueKind::BracketExpr { left, subscript }, val) => {
                 let left = match left.value {
@@ -425,7 +445,9 @@ impl Interpretter {
                     todo!();
                 };
                 match left {
-                    Value::Array(a) => a[usize::try_from(idx).map_err(Error::BadConversion)?] = val,
+                    Value::Array(a) => {
+                        a.borrow_mut()[usize::try_from(idx).map_err(Error::BadConversion)?] = val;
+                    }
                     _ => todo!(),
                 }
             }
@@ -442,9 +464,13 @@ impl Interpretter {
     ) -> InterpretterResult {
         use DeclarationKind::Var;
         let right = self.expr(items)?;
-        let items_vec = match right {
-            Value::Tuple(v) | Value::Array(v) => v,
-            Value::Str(s) => s.chars().map(Value::Char).collect(),
+        match right {
+            Value::Tuple(v) => self.do_for(item, &mut v.iter(), body),
+            Value::Array(v) => self.do_for(item, &mut v.borrow().iter(), body),
+            Value::Str(s) => {
+                let items = s.chars().map(Value::Char).collect::<Vec<_>>();
+                self.do_for(item, &mut items.iter(), body)
+            }
             Value::Iterable(iterable) => {
                 for val in iterable {
                     match item.value {
@@ -455,16 +481,23 @@ impl Interpretter {
                     };
                     self.expr(body)?;
                 }
-                return Ok(Value::None);
+                Ok(Value::None)
             }
-            _ => {
-                return Err(FlowControl::Error(Error::CannotIterateOver(
-                    items.span.clone(),
-                    right,
-                )))
-            }
-        };
-        for val in items_vec {
+            _ => Err(FlowControl::Error(Error::CannotIterateOver(
+                items.span.clone(),
+                right,
+            ))),
+        }
+    }
+
+    fn do_for<'a, T: Iterator<Item = &'a Value>>(
+        &mut self,
+        item: &UntypedLValue,
+        items: &'a mut T,
+        body: &UntypedExpr,
+    ) -> InterpretterResult {
+        use DeclarationKind::Var;
+        for val in items {
             match item.value {
                 LValueKind::Variable(ref s) => {
                     self.scopes.insert(s.clone(), val.clone(), Var);
@@ -513,11 +546,11 @@ impl Interpretter {
     fn evaluate_call(
         &mut self,
         callable: &Value,
-        args: Vec<Value>,
+        mut args: Vec<Value>,
         span: &Span,
     ) -> InterpretterResult {
         match callable {
-            Value::ExternalFunc(c) => Ok(c(&args)),
+            Value::ExternalFunc(c) => Ok(c(&mut args)),
             Value::Lambda(l) => {
                 self.scopes.open();
                 self.lambda_args.push(args);
@@ -563,7 +596,7 @@ impl Interpretter {
         Ok(args[num].clone())
     }
 
-    fn pipe<T: Iterator<Item = Value>>(
+    fn pipe<'a, T: Iterator<Item = &'a Value>>(
         &mut self,
         iterable: T,
         callable: &UntypedExpr,
@@ -577,7 +610,7 @@ impl Interpretter {
                 continue;
             };
         }
-        Ok(Value::Array(rtn))
+        Ok(Value::Array(Rc::new(RefCell::new(rtn))))
     }
 
     fn bracket(
@@ -589,7 +622,17 @@ impl Interpretter {
         let left = self.expr(left)?;
         let subscript = self.expr(subscript)?;
         match (&left, &subscript) {
-            (Value::Array(a) | Value::Tuple(a), Value::Integer(i)) => {
+            (Value::Array(a), Value::Integer(i)) => {
+                // This does not bring joy
+                let b = usize::try_from(*i).map_err(Error::BadConversion);
+                let len = a.borrow().len();
+                if *i < 0 || b.clone()? > len {
+                    Err(Error::IndexOutOfBound(span.clone(), left, subscript, len))?
+                } else {
+                    Ok(a.borrow()[b?].clone())
+                }
+            }
+            (Value::Tuple(a), Value::Integer(i)) => {
                 // This does not bring joy
                 let b = usize::try_from(*i).map_err(Error::BadConversion);
                 if *i < 0 || b.clone()? > a.len() {
@@ -612,7 +655,7 @@ impl Interpretter {
     }
 
     fn array(&mut self, values: &[UntypedExpr]) -> InterpretterResult {
-        Ok(Value::Array(self.multiexpr_common(values)?))
+        Ok(Value::array(self.multiexpr_common(values)?))
     }
 
     fn declaration(
@@ -625,9 +668,14 @@ impl Interpretter {
         match names {
             DeclIds::One(n) => self.scopes.insert(n.clone(), value, kind),
             DeclIds::Many(ns) => match value {
-                Value::Tuple(a) | Value::Array(a) => {
+                Value::Tuple(a) => {
                     for (name, value) in ns.iter().zip(a) {
                         self.declaration(kind, name, value, span)?;
+                    }
+                }
+                Value::Array(a) => {
+                    for (name, value) in ns.iter().zip(a.borrow().iter()) {
+                        self.declaration(kind, name, value.clone(), span)?;
                     }
                 }
                 v => {

@@ -14,10 +14,11 @@ pub fn intrinsics() -> HashMap<String, Value> {
     vars.insert("split".into(), Value::ExternalFunc(split_str));
     vars.insert("join".into(), Value::ExternalFunc(join_str));
     vars.insert("collect".into(), Value::ExternalFunc(collect));
+    vars.insert("push".into(), Value::ExternalFunc(push));
     vars
 }
 
-fn str_replace(ipt: &[Value]) -> Value {
+fn str_replace(ipt: &mut [Value]) -> Value {
     assert_eq!(ipt.len(), 3);
     let Value::Str(haystack) = ipt[0].clone() else {
         panic!("wrong type")
@@ -31,7 +32,7 @@ fn str_replace(ipt: &[Value]) -> Value {
     Value::Str(haystack.replace(&needle, &replacement))
 }
 
-fn print_val(ipt: &[Value]) -> Value {
+fn print_val(ipt: &mut [Value]) -> Value {
     let mut first = true;
     for val in ipt {
         if !first {
@@ -44,25 +45,26 @@ fn print_val(ipt: &[Value]) -> Value {
     Value::None
 }
 
-fn split_str(ipt: &[Value]) -> Value {
+fn split_str(ipt: &mut [Value]) -> Value {
     assert_eq!(ipt.len(), 2);
     let arg = ipt[0].clone();
     let splitter = ipt[1].clone();
     match (arg, splitter) {
         (Value::Str(a), Value::Str(s)) => {
-            Value::Array(a.split(&s).map(|s| Value::Str(s.into())).collect())
+            Value::array(a.split(&s).map(|s| Value::Str(s.into())).collect())
         }
         (a, b) => todo!("{a} {b}"),
     }
 }
 
-fn join_str(ipt: &[Value]) -> Value {
+fn join_str(ipt: &mut [Value]) -> Value {
     assert_eq!(ipt.len(), 2);
     let arg = ipt[0].clone();
     let joiner = ipt[1].clone();
     match (arg, joiner) {
         (Value::Array(a), Value::Str(s)) => Value::Str(
-            a.iter()
+            a.borrow()
+                .iter()
                 .map(ToString::to_string)
                 .collect::<Vec<_>>()
                 .join(&s),
@@ -71,11 +73,22 @@ fn join_str(ipt: &[Value]) -> Value {
     }
 }
 
-fn collect(ipt: &[Value]) -> Value {
+fn collect(ipt: &mut [Value]) -> Value {
     assert_eq!(ipt.len(), 1);
     let arg = ipt[0].clone();
     match arg {
-        Value::Iterable(a) => Value::Array(a.collect()),
+        Value::Iterable(a) => Value::array(a.collect()),
         a => todo!("{a}"),
     }
+}
+
+fn push(ipt: &mut [Value]) -> Value {
+    eprintln!("{ipt:?}");
+    assert_eq!(ipt.len(), 2);
+    let val = ipt[1].clone();
+    match &mut ipt[0] {
+        Value::Array(a) => a.borrow_mut().push(val),
+        a => todo!("{a}"),
+    }
+    Value::None
 }
