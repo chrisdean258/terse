@@ -137,14 +137,14 @@ macro_rules! binops {
 }
 
 macro_rules! expect {
-    ($self:ident { $( $tree:tt )* }) => {{
-        let Some(token) = $self.lexer.next() else {
+    ($self:ident => $token:ident { $( $tree:tt )* }) => {{
+        let Some($token) = $self.lexer.next() else {
             todo!()
         };
-        let token = token?;
-        match token.value {
+        let $token = $token?;
+        match $token.value {
             $($tree)*
-            _ => todo!(),
+            v => todo!("{v}"),
         }
     }};
 }
@@ -539,18 +539,20 @@ where
 
     fn ids(&mut self, token: Token, recursed: bool) -> Result<DeclIds, ParseError> {
         let mut ids = Vec::new();
+        let mut id;
         let mut force_tuple = false;
+        self.lexer.put_back(Ok(token));
         loop {
-            ids.push(expect!(self {
+            id = expect!(self => token {
                 TokenKind::Identifier(s) => DeclIds::One(s),
                 TokenKind::OpenParen => {
                     let token = self.must_next_token("open paren or identifier")?;
                     let sub_ids = self.ids(token, true)?;
-                    let token = self.must_next_token("close_paren")?;
+                    // expect!(self => token { TokenKind::CloseParen => (), });
                     sub_ids
                 }
-            }));
-            expect!(self {
+            });
+            expect!(self => token {
                 TokenKind::CloseParen if recursed => break,
                 TokenKind::SingleEquals if !recursed => {
                     self.lexer.put_back(Ok(token));
@@ -560,10 +562,12 @@ where
                     force_tuple = true;
                 }
             });
+            ids.push(id);
         }
-        if ids.len() == 1 && !force_tuple {
-            Ok(ids.pop().unwrap())
+        if ids.is_empty() && !force_tuple {
+            Ok(id)
         } else {
+            ids.push(id);
             Ok(DeclIds::Many(ids))
         }
     }

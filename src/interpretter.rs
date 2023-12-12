@@ -1,6 +1,6 @@
 use crate::{
     expression::{
-        AssignmentKind, BinOpKind, DeclarationKind, FlatBinOpKind, LValueKind, RValueKind,
+        AssignmentKind, BinOpKind, DeclIds, DeclarationKind, FlatBinOpKind, LValueKind, RValueKind,
         ShortCircuitBinOpKind, UntypedExpr, UntypedExprKind, UntypedLValue,
     },
     intrinsics::intrinsics,
@@ -51,10 +51,12 @@ pub enum Error {
     CannotAssign(Span),
     #[error("{0}")]
     BadConversion(#[from] std::num::TryFromIntError),
+    #[error("{0}: `{1}` was declared as a constant with the `let` keyword")]
+    VariableIsConstant(Span, String),
 }
 
 pub struct ScopeTable {
-    scopes: Vec<HashMap<String, Value>>,
+    scopes: Vec<HashMap<String, (Value, DeclarationKind)>>,
 }
 
 #[derive(Debug, Clone)]
@@ -70,35 +72,42 @@ impl From<Error> for FlowControl {
 
 type InterpretterResult = Result<Value, FlowControl>;
 
+enum GetMutError {
+    NoSuchKey,
+    IsLetVar,
+}
 impl ScopeTable {
-    pub fn new(presets: HashMap<String, Value>) -> Self {
+    fn new(presets: HashMap<String, (Value, DeclarationKind)>) -> Self {
         Self {
             scopes: vec![presets],
         }
     }
-    pub fn insert(&mut self, key: String, val: Value) {
+    fn insert(&mut self, key: String, val: Value, kind: DeclarationKind) {
         self.scopes
             .last_mut()
             .expect("scopes is empty")
-            .insert(key, val);
+            .insert(key, (val, kind));
     }
 
-    pub fn get(&mut self, key: &str) -> Option<&Value> {
+    fn get(&mut self, key: &str) -> Option<&mut Value> {
         for scope in self.scopes.iter_mut().rev() {
-            if let Some(v) = scope.get_mut(key) {
+            if let Some((v, _)) = scope.get_mut(key) {
                 return Some(v);
             }
         }
         None
     }
 
-    pub fn get_mut(&mut self, key: &str) -> Option<&mut Value> {
+    fn get_mut(&mut self, key: &str) -> Result<&mut Value, GetMutError> {
         for scope in self.scopes.iter_mut().rev() {
-            if let Some(v) = scope.get_mut(key) {
-                return Some(v);
+            if let Some((v, k)) = scope.get_mut(key) {
+                return match k {
+                    DeclarationKind::Var => Ok(v),
+                    DeclarationKind::Let => Err(GetMutError::IsLetVar),
+                };
             }
         }
-        None
+        Err(GetMutError::NoSuchKey)
     }
 
     pub fn open(&mut self) {
@@ -117,6 +126,10 @@ impl Interpretter {
     }
 
     pub fn with_vars(presets: HashMap<String, Value>) -> Self {
+        let presets = presets
+            .into_iter()
+            .map(|(k, v)| (k, (v, DeclarationKind::Let)))
+            .collect::<HashMap<_, _>>();
         Self {
             scopes: ScopeTable::new(presets),
             lambda_args: Vec::new(),
@@ -161,8 +174,9 @@ impl Interpretter {
                 RValueKind::Lambda(subexpr) => Ok(Value::Lambda(subexpr.clone())),
                 RValueKind::LambdaArg(i) => self.lambda_arg(*i, &expr.span),
                 RValueKind::Array(a) => self.array(a),
-                RValueKind::Declaration { kind, name, value } => {
-                    self.declaration(*kind, name.clone(), value)
+                RValueKind::Declaration { kind, names, value } => {
+                    let v = self.expr(value)?;
+                    self.declaration(*kind, names, v, &expr.span)
                 }
             },
             UntypedExprKind::LValue(l) => self.lval(l, &expr.span),
@@ -371,9 +385,15 @@ impl Interpretter {
     ) -> InterpretterResult {
         match (left, right.clone()) {
             (LValueKind::Variable(ref s), right) => match self.scopes.get_mut(s) {
-                Some(v) => *v = right,
-                None => {
+                Ok(v) => *v = right,
+                Err(GetMutError::NoSuchKey) => {
                     return Err(FlowControl::Error(Error::NoSuchVariable(
+                        span.clone(),
+                        s.clone(),
+                    )))
+                }
+                Err(GetMutError::IsLetVar) => {
+                    return Err(FlowControl::Error(Error::VariableIsConstant(
                         span.clone(),
                         s.clone(),
                     )))
@@ -398,7 +418,7 @@ impl Interpretter {
                     _ => todo!(),
                 };
                 let idx = self.expr(subscript)?;
-                let Some(left) = self.scopes.get_mut(left) else {
+                let Some(left) = self.scopes.get(left) else {
                     return Err(Error::NoSuchVariable(span.clone(), left.clone()))?;
                 };
                 let Value::Integer(idx) = idx else {
@@ -420,6 +440,7 @@ impl Interpretter {
         items: &UntypedExpr,
         body: &UntypedExpr,
     ) -> InterpretterResult {
+        use DeclarationKind::Var;
         let right = self.expr(items)?;
         let items_vec = match right {
             Value::Tuple(v) | Value::Array(v) => v,
@@ -427,7 +448,9 @@ impl Interpretter {
             Value::Iterable(iterable) => {
                 for val in iterable {
                     match item.value {
-                        LValueKind::Variable(ref s) => self.scopes.insert(s.clone(), val.clone()),
+                        LValueKind::Variable(ref s) => {
+                            self.scopes.insert(s.clone(), val.clone(), Var);
+                        }
                         _ => todo!(),
                     };
                     self.expr(body)?;
@@ -443,7 +466,9 @@ impl Interpretter {
         };
         for val in items_vec {
             match item.value {
-                LValueKind::Variable(ref s) => self.scopes.insert(s.clone(), val.clone()),
+                LValueKind::Variable(ref s) => {
+                    self.scopes.insert(s.clone(), val.clone(), Var);
+                }
                 _ => todo!(),
             };
             self.expr(body)?;
@@ -592,12 +617,28 @@ impl Interpretter {
 
     fn declaration(
         &mut self,
-        _kind: DeclarationKind,
-        name: String,
-        value: &UntypedExpr,
+        kind: DeclarationKind,
+        names: &DeclIds,
+        value: Value,
+        span: &Span,
     ) -> InterpretterResult {
-        let value = self.expr(value)?;
-        self.scopes.insert(name, value.clone());
-        Ok(value)
+        match names {
+            DeclIds::One(n) => self.scopes.insert(n.clone(), value, kind),
+            DeclIds::Many(ns) => match value {
+                Value::Tuple(a) | Value::Array(a) => {
+                    for (name, value) in ns.iter().zip(a) {
+                        self.declaration(kind, name, value, span)?;
+                    }
+                }
+                v => {
+                    return Err(FlowControl::Error(Error::AssignmentLengthMismatch(
+                        span.clone(),
+                        ns.len(),
+                        v,
+                    )))
+                }
+            },
+        }
+        Ok(Value::None)
     }
 }
