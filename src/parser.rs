@@ -1,7 +1,7 @@
 #![allow(clippy::needless_pass_by_value)]
 use crate::{
     expression::{
-        AssignmentKind, BinOpKind, DeclarationKind, FlatBinOpKind, LValueKind, RValueKind,
+        AssignmentKind, BinOpKind, DeclIds, DeclarationKind, FlatBinOpKind, LValueKind, RValueKind,
         ShortCircuitBinOpKind, UntypedExpr, UntypedExprKind, UntypedLValue,
     },
     lexer::LexError,
@@ -134,6 +134,19 @@ macro_rules! binops {
         }
         binops!($next $($rest)*);
     }
+}
+
+macro_rules! expect {
+    ($self:ident { $( $tree:tt )* }) => {{
+        let Some(token) = $self.lexer.next() else {
+            todo!()
+        };
+        let token = token?;
+        match token.value {
+            $($tree)*
+            _ => todo!(),
+        }
+    }};
 }
 
 impl<I> Parser<I>
@@ -494,16 +507,17 @@ where
             _ => unreachable!("Only pass tokens of type Let and Var into parser.declaration()"),
         };
         let token = self.must_next_token("variable name")?;
-        let Token {
-            span: _,
-            value: TokenKind::Identifier(name),
-        } = token
-        else {
-            return Err(ParseError::UnexpectedToken {
-                expected: vec![TokenKind::Identifier(String::new())],
-                found: token,
-            });
-        };
+        let names = self.ids(token, false)?;
+        // let Token {
+        // span: _,
+        // value: TokenKind::Identifier(name),
+        // } = token
+        // else {
+        // return Err(ParseError::UnexpectedToken {
+        // expected: vec![TokenKind::Identifier("".into())],
+        // found: token,
+        // });
+        // };
         let token = self.must_next_token("`=`")?;
         let Token {
             span: _,
@@ -519,7 +533,38 @@ where
         let value = Box::new(self.expr(token)?);
         Ok(UntypedExpr {
             span: decl_type.span.to(&value.span),
-            value: UntypedExprKind::RValue(RValueKind::Declaration { kind, name, value }),
+            value: UntypedExprKind::RValue(RValueKind::Declaration { kind, names, value }),
         })
+    }
+
+    fn ids(&mut self, token: Token, recursed: bool) -> Result<DeclIds, ParseError> {
+        let mut ids = Vec::new();
+        let mut force_tuple = false;
+        loop {
+            ids.push(expect!(self {
+                TokenKind::Identifier(s) => DeclIds::One(s),
+                TokenKind::OpenParen => {
+                    let token = self.must_next_token("open paren or identifier")?;
+                    let sub_ids = self.ids(token, true)?;
+                    let token = self.must_next_token("close_paren")?;
+                    sub_ids
+                }
+            }));
+            expect!(self {
+                TokenKind::CloseParen if recursed => break,
+                TokenKind::SingleEquals if !recursed => {
+                    self.lexer.put_back(Ok(token));
+                    break
+                }
+                TokenKind::Comma => {
+                    force_tuple = true;
+                }
+            });
+        }
+        if ids.len() == 1 && !force_tuple {
+            Ok(ids.pop().unwrap())
+        } else {
+            Ok(DeclIds::Many(ids))
+        }
     }
 }

@@ -50,10 +50,16 @@ pub enum DeclarationKind {
 }
 
 #[derive(Debug)]
+pub enum DeclIds {
+    One(String),
+    Many(Vec<DeclIds>),
+}
+
+#[derive(Debug)]
 pub enum RValueKind {
     Declaration {
         kind: DeclarationKind,
-        name: String,
+        names: DeclIds,
         value: SubExpr,
     },
     Integer(i64),
@@ -255,7 +261,7 @@ impl Display for RValueKind {
                 }
                 write!(f, "]")
             }
-            Self::Declaration { kind, name, value } => write!(f, "{kind} {name} = {value}"),
+            Self::Declaration { kind, names, value } => write!(f, "{kind} {names} = {value}"),
         }
     }
 }
@@ -302,6 +308,22 @@ impl Display for DeclarationKind {
         match self {
             Self::Let => write!(f, "let"),
             Self::Var => write!(f, "var"),
+        }
+    }
+}
+
+impl Display for DeclIds {
+    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
+        match self {
+            Self::One(s) => write!(f, "{s}"),
+            Self::Many(ids) => {
+                let mut first = true;
+                for id in ids {
+                    write!(f, "{}{id}", if first { "(" } else { ", " })?;
+                    first = false;
+                }
+                write!(f, ")")
+            }
         }
     }
 }
