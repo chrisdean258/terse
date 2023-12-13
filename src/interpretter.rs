@@ -55,6 +55,8 @@ pub enum Error {
     VariableIsConstant(Span, String),
     #[error("{0}")]
     TypeErrorInIntrinsic(#[from] IntrinsicsError),
+    #[error("{0}: `{1}` was moved")]
+    VariableWasMoved(Span, String),
 }
 
 pub struct ScopeTable {
@@ -83,6 +85,7 @@ type InterpretterResult = Result<Value, FlowControl>;
 enum GetMutError {
     NoSuchKey,
     IsLetVar,
+    Moved,
 }
 impl ScopeTable {
     fn new(presets: HashMap<String, (Value, DeclarationKind)>) -> Self {
@@ -112,6 +115,7 @@ impl ScopeTable {
                 return match k {
                     DeclarationKind::Var => Ok(v),
                     DeclarationKind::Let => Err(GetMutError::IsLetVar),
+                    DeclarationKind::Moved => Err(GetMutError::Moved),
                 };
             }
         }
@@ -121,12 +125,16 @@ impl ScopeTable {
     fn clone_or_take(&mut self, key: &str) -> Result<Value, GetMutError> {
         for scope in self.scopes.iter_mut().rev() {
             if let Some((k, (v, kind))) = scope.remove_entry(key) {
+                if matches!(kind, DeclarationKind::Moved) {
+                    return Err(GetMutError::Moved);
+                }
                 if let Some(vv) = v.try_clone() {
-                    scope.insert(k, (vv, kind));
-                    return Ok(v);
+                    scope.insert(k, (v, kind));
+                    return Ok(vv);
                 }
                 if matches!(kind, DeclarationKind::Let) {
-                    return Err(GetMutError::IsLetVar);
+                    scope.insert(k, (Value::None, DeclarationKind::Moved));
+                    return Ok(v);
                 }
             }
         }
@@ -421,6 +429,12 @@ impl Interpretter {
                         s.clone(),
                     )))
                 }
+                Err(GetMutError::Moved) => {
+                    return Err(FlowControl::Error(Error::VariableWasMoved(
+                        span.clone(),
+                        s.clone(),
+                    )))
+                }
             },
             (LValueKind::Tuple(lvals), Value::Tuple(t)) => {
                 if lvals.len() != t.len() {
@@ -485,7 +499,7 @@ impl Interpretter {
             Value::Tuple(v) => self.do_for(item, v.into_iter(), body),
             Value::Array(v) => self.do_for(item, v.take().into_iter(), body),
             Value::Str(s) => {
-                let items = s.chars().map(Value::Char).collect::<Vec<_>>();
+                let items = s.chars().map(Value::Char);
                 self.do_for(item, items.into_iter(), body)
             }
             Value::Iterable(iterable) => {
@@ -545,12 +559,16 @@ impl Interpretter {
 
     fn variable(&mut self, span: &Span, name: &str) -> InterpretterResult {
         match self.scopes.clone_or_take(name) {
+            Ok(v) => Ok(v),
             Err(GetMutError::NoSuchKey) => Err(FlowControl::Error(Error::NoSuchVariable(
                 span.clone(),
                 name.to_owned(),
             ))),
-            Ok(v) => Ok(v),
-            _ => todo!(),
+            Err(GetMutError::Moved) => Err(FlowControl::Error(Error::VariableWasMoved(
+                span.clone(),
+                name.to_owned(),
+            ))),
+            _ => unreachable!(),
         }
     }
 

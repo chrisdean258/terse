@@ -47,6 +47,7 @@ pub enum LValueKind {
 pub enum DeclarationKind {
     Let,
     Var,
+    Moved,
 }
 
 #[derive(Debug)]
@@ -308,6 +309,7 @@ impl Display for DeclarationKind {
         match self {
             Self::Let => write!(f, "let"),
             Self::Var => write!(f, "var"),
+            Self::Moved => write!(f, "moved!"),
         }
     }
 }

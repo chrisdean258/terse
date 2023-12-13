@@ -51,6 +51,7 @@ impl Value {
             Self::Bool(b) => Some(Self::Bool(*b)),
             Self::Char(c) => Some(Self::Char(*c)),
             Self::None => Some(Self::None),
+            Self::Lambda(l) => Some(Self::Lambda(l.clone())),
             Self::ExternalFunc(e) => Some(Self::ExternalFunc(*e)),
             _ => None,
         }
