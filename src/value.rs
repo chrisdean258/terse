@@ -1,11 +1,10 @@
-use crate::{expression::UntypedExpr, intrinsics::Error};
+use crate::{expression::UntypedExpr, interpretter::Interpretter, intrinsics::Error};
 use std::{
     cell::RefCell,
     fmt::{Debug, Display, Formatter},
     rc::Rc,
 };
 
-#[derive(Clone)]
 pub enum Value {
     None,
     Integer(i64),
@@ -15,7 +14,7 @@ pub enum Value {
     Bool(bool),
     Array(Rc<RefCell<Vec<Value>>>),
     Char(char),
-    ExternalFunc(fn(&mut [Value]) -> Result<Value, Error>),
+    ExternalFunc(fn(&mut Interpretter, &mut [Value]) -> Result<Value, Error>),
     Lambda(Rc<UntypedExpr>),
     Iterable(Iterable),
 }
@@ -43,6 +42,24 @@ impl Iterable {
 impl Value {
     pub fn array(vals: Vec<Self>) -> Self {
         Self::Array(Rc::new(RefCell::new(vals)))
+    }
+
+    pub fn try_clone(&self) -> Option<Self> {
+        match self {
+            Self::Integer(i) => Some(Self::Integer(*i)),
+            Self::Float(f) => Some(Self::Float(*f)),
+            Self::Bool(b) => Some(Self::Bool(*b)),
+            Self::Char(c) => Some(Self::Char(*c)),
+            Self::None => Some(Self::None),
+            Self::ExternalFunc(e) => Some(Self::ExternalFunc(*e)),
+            _ => None,
+        }
+    }
+
+    pub fn clone_or_take(&mut self) -> Self {
+        let mut cln = self.try_clone().unwrap_or(Self::None);
+        std::mem::swap(&mut cln, self);
+        cln
     }
 }
 

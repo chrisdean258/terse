@@ -16,7 +16,7 @@ pub struct Interpretter {
     lambda_args: Vec<Vec<Value>>,
 }
 
-#[derive(Error, Debug, Clone)]
+#[derive(Error, Debug)]
 pub enum Error {
     #[error("{0}: Cannot evaluate `{1} {2}`")]
     ShortCircuitBinOpErrorOne(Span, Value, ShortCircuitBinOpKind),
@@ -61,7 +61,7 @@ pub struct ScopeTable {
     scopes: Vec<HashMap<String, (Value, DeclarationKind)>>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 enum FlowControl {
     Error(Error),
 }
@@ -113,6 +113,21 @@ impl ScopeTable {
                     DeclarationKind::Var => Ok(v),
                     DeclarationKind::Let => Err(GetMutError::IsLetVar),
                 };
+            }
+        }
+        Err(GetMutError::NoSuchKey)
+    }
+
+    fn clone_or_take(&mut self, key: &str) -> Result<Value, GetMutError> {
+        for scope in self.scopes.iter_mut().rev() {
+            if let Some((k, (v, kind))) = scope.remove_entry(key) {
+                if let Some(vv) = v.try_clone() {
+                    scope.insert(k, (vv, kind));
+                    return Ok(v);
+                }
+                if matches!(kind, DeclarationKind::Let) {
+                    return Err(GetMutError::IsLetVar);
+                }
             }
         }
         Err(GetMutError::NoSuchKey)
@@ -268,15 +283,9 @@ impl Interpretter {
                 }
             }
             (_a, InvertedCall) => self.invert_call_or_call(left_val, right, span)?,
-            (Value::Array(a), Pipe) => self.pipe(a.borrow().iter(), right, span)?,
-            (Value::Str(s), Pipe) => {
-                let items = s.chars().map(Value::Char).collect::<Vec<_>>();
-                self.pipe(items.iter(), right, span)?
-            }
-            (Value::Iterable(iter), Pipe) => {
-                let items = iter.collect::<Vec<_>>();
-                self.pipe(items.iter(), right, span)?
-            }
+            (Value::Array(a), Pipe) => self.pipe(a.take().into_iter(), right, span)?,
+            (Value::Str(s), Pipe) => self.pipe(s.chars().map(Value::Char), right, span)?,
+            (Value::Iterable(iter), Pipe) => self.pipe(iter.into_iter(), right, span)?,
             (_, op) => {
                 return Err(FlowControl::Error(Error::ShortCircuitBinOpErrorOne(
                     span.clone(),
@@ -306,7 +315,7 @@ impl Interpretter {
         } else {
             self.expr(right)?
         };
-        self.evaluate_call(&b, args, span)
+        self.evaluate_call(b, args, span)
     }
 
     fn flat_binop(
@@ -397,7 +406,7 @@ impl Interpretter {
         right: Value,
         span: &Span,
     ) -> InterpretterResult {
-        match (left, right.clone()) {
+        match (left, right) {
             (LValueKind::Variable(ref s), right) => match self.scopes.get_mut(s) {
                 Ok(v) => *v = right,
                 Err(GetMutError::NoSuchKey) => {
@@ -418,10 +427,10 @@ impl Interpretter {
                     return Err(FlowControl::Error(Error::AssignmentLengthMismatch(
                         span.clone(),
                         lvals.len(),
-                        right,
+                        Value::Tuple(t),
                     )));
                 }
-                for (l, r) in lvals.iter().zip(t) {
+                for (l, r) in lvals.iter().zip(t.into_iter()) {
                     self.try_assignment(l, op, r, span)?;
                 }
             }
@@ -431,11 +440,11 @@ impl Interpretter {
                     return Err(FlowControl::Error(Error::AssignmentLengthMismatch(
                         span.clone(),
                         lvals.len(),
-                        right,
+                        Value::Array(t),
                     )));
                 }
-                for (l, r) in lvals.iter().zip(t.borrow().iter()) {
-                    self.try_assignment(l, op, r.clone(), span)?;
+                for (l, r) in lvals.iter().zip(t.take().into_iter()) {
+                    self.try_assignment(l, op, r, span)?;
                 }
             }
 
@@ -461,7 +470,7 @@ impl Interpretter {
             }
             _ => todo!(),
         };
-        Ok(right)
+        Ok(Value::None)
     }
 
     fn for_(
@@ -473,17 +482,17 @@ impl Interpretter {
         use DeclarationKind::Var;
         let right = self.expr(items)?;
         match right {
-            Value::Tuple(v) => self.do_for(item, &mut v.iter(), body),
-            Value::Array(v) => self.do_for(item, &mut v.borrow().iter(), body),
+            Value::Tuple(v) => self.do_for(item, v.into_iter(), body),
+            Value::Array(v) => self.do_for(item, v.take().into_iter(), body),
             Value::Str(s) => {
                 let items = s.chars().map(Value::Char).collect::<Vec<_>>();
-                self.do_for(item, &mut items.iter(), body)
+                self.do_for(item, items.into_iter(), body)
             }
             Value::Iterable(iterable) => {
                 for val in iterable {
                     match item.value {
                         LValueKind::Variable(ref s) => {
-                            self.scopes.insert(s.clone(), val.clone(), Var);
+                            self.scopes.insert(s.clone(), val, Var);
                         }
                         _ => todo!(),
                     };
@@ -498,17 +507,17 @@ impl Interpretter {
         }
     }
 
-    fn do_for<'a, T: Iterator<Item = &'a Value>>(
+    fn do_for<T: Iterator<Item = Value>>(
         &mut self,
         item: &UntypedLValue,
-        items: &'a mut T,
+        items: T,
         body: &UntypedExpr,
     ) -> InterpretterResult {
         use DeclarationKind::Var;
         for val in items {
             match item.value {
                 LValueKind::Variable(ref s) => {
-                    self.scopes.insert(s.clone(), val.clone(), Var);
+                    self.scopes.insert(s.clone(), val, Var);
                 }
                 _ => todo!(),
             };
@@ -535,10 +544,14 @@ impl Interpretter {
     }
 
     fn variable(&mut self, span: &Span, name: &str) -> InterpretterResult {
-        self.scopes
-            .get(name)
-            .cloned()
-            .ok_or_else(|| FlowControl::Error(Error::NoSuchVariable(span.clone(), name.to_owned())))
+        match self.scopes.clone_or_take(name) {
+            Err(GetMutError::NoSuchKey) => Err(FlowControl::Error(Error::NoSuchVariable(
+                span.clone(),
+                name.to_owned(),
+            ))),
+            Ok(v) => Ok(v),
+            _ => todo!(),
+        }
     }
 
     fn block(&mut self, exprs: &[UntypedExpr]) -> InterpretterResult {
@@ -553,16 +566,16 @@ impl Interpretter {
 
     fn evaluate_call(
         &mut self,
-        callable: &Value,
+        callable: Value,
         mut args: Vec<Value>,
         span: &Span,
     ) -> InterpretterResult {
         match callable {
-            Value::ExternalFunc(c) => Ok(c(&mut args)?),
+            Value::ExternalFunc(c) => Ok(c(self, &mut args)?),
             Value::Lambda(l) => {
                 self.scopes.open();
                 self.lambda_args.push(args);
-                let result = self.expr(l);
+                let result = self.expr(&l);
                 self.lambda_args
                     .pop()
                     .expect("should have popped the args we pushed");
@@ -571,7 +584,7 @@ impl Interpretter {
             }
             _ => Err(FlowControl::Error(Error::NotCallable(
                 span.clone(),
-                callable.clone(),
+                callable,
             ))),
         }
     }
@@ -587,13 +600,13 @@ impl Interpretter {
             .iter()
             .map(|a| self.expr(a))
             .collect::<Result<Vec<_>, _>>()?;
-        self.evaluate_call(&callable_val, args, span)
+        self.evaluate_call(callable_val, args, span)
     }
 
     fn lambda_arg(&mut self, num: usize, span: &Span) -> InterpretterResult {
         assert!(!self.lambda_args.is_empty());
         #[allow(clippy::unwrap_used)]
-        let args = self.lambda_args.last().unwrap();
+        let args = self.lambda_args.last_mut().unwrap();
         if num >= args.len() {
             return Err(FlowControl::Error(Error::NotEnoughArguments(
                 span.clone(),
@@ -601,10 +614,10 @@ impl Interpretter {
                 self.lambda_args.len(),
             )));
         }
-        Ok(args[num].clone())
+        Ok(args[num].clone_or_take())
     }
 
-    fn pipe<'a, T: Iterator<Item = &'a Value>>(
+    fn pipe<T: Iterator<Item = Value>>(
         &mut self,
         iterable: T,
         callable: &UntypedExpr,
@@ -612,7 +625,7 @@ impl Interpretter {
     ) -> InterpretterResult {
         let mut rtn = Vec::new();
         for val in iterable {
-            let val = self.invert_call_or_call(val.clone(), callable, span)?;
+            let val = self.invert_call_or_call(val, callable, span)?;
             let Value::None = val else {
                 rtn.push(val);
                 continue;
@@ -627,27 +640,27 @@ impl Interpretter {
         left: &UntypedExpr,
         subscript: &UntypedExpr,
     ) -> InterpretterResult {
-        let left = self.expr(left)?;
+        let mut left = self.expr(left)?;
         let subscript = self.expr(subscript)?;
-        match (&left, &subscript) {
+        match (&mut left, &subscript) {
             (Value::Array(a), Value::Integer(i)) => {
                 // This does not bring joy
-                let b = usize::try_from(*i).map_err(Error::BadConversion);
+                let b = usize::try_from(*i);
                 let len = a.borrow().len();
-                if *i < 0 || b.clone()? > len {
+                if *i < 0 || b.map_err(Error::BadConversion)? > len {
                     Err(Error::IndexOutOfBound(span.clone(), left, subscript, len))?
                 } else {
-                    Ok(a.borrow()[b?].clone())
+                    Ok(a.borrow_mut()[b.map_err(Error::BadConversion)?].clone_or_take())
                 }
             }
             (Value::Tuple(a), Value::Integer(i)) => {
                 // This does not bring joy
-                let b = usize::try_from(*i).map_err(Error::BadConversion);
-                if *i < 0 || b.clone()? > a.len() {
+                let b = usize::try_from(*i);
+                if *i < 0 || b.map_err(Error::BadConversion)? > a.len() {
                     let l = a.len();
                     Err(Error::IndexOutOfBound(span.clone(), left, subscript, l))?
                 } else {
-                    Ok(a[b?].clone())
+                    Ok(a[b.map_err(Error::BadConversion)?].clone_or_take())
                 }
             }
             (_, _) => Err(FlowControl::Error(Error::CannotIndex(span.clone(), left))),
@@ -682,8 +695,8 @@ impl Interpretter {
                     }
                 }
                 Value::Array(a) => {
-                    for (name, value) in ns.iter().zip(a.borrow().iter()) {
-                        self.declaration(kind, name, value.clone(), span)?;
+                    for (name, value) in ns.iter().zip(a.borrow_mut().iter_mut()) {
+                        self.declaration(kind, name, value.clone_or_take(), span)?;
                     }
                 }
                 v => {
