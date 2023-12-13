@@ -1,4 +1,4 @@
-use crate::expression::UntypedExpr;
+use crate::{expression::UntypedExpr, intrinsics::Error};
 use std::{
     cell::RefCell,
     fmt::{Debug, Display, Formatter},
@@ -15,7 +15,7 @@ pub enum Value {
     Bool(bool),
     Array(Rc<RefCell<Vec<Value>>>),
     Char(char),
-    ExternalFunc(fn(&mut [Value]) -> Value),
+    ExternalFunc(fn(&mut [Value]) -> Result<Value, Error>),
     Lambda(Rc<UntypedExpr>),
     Iterable(Iterable),
 }
@@ -41,7 +41,7 @@ impl Iterable {
 }
 
 impl Value {
-    pub fn array(vals: Vec<Value>) -> Value {
+    pub fn array(vals: Vec<Self>) -> Self {
         Self::Array(Rc::new(RefCell::new(vals)))
     }
 }

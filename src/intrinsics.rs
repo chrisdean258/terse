@@ -1,5 +1,16 @@
 use crate::value::{Iterable, Value};
-use std::{collections::HashMap, io::stdin};
+use std::{cell::RefCell, collections::HashMap, io::stdin, rc::Rc};
+use thiserror::Error;
+
+#[derive(Error, Debug, Clone)]
+pub enum Error {
+    #[error("{0}: Type error: expected `{1}` found `{2}`")]
+    TypeError(&'static str, &'static str, Value),
+    #[error("{0}: expected {1} argument(s) given {2}")]
+    ArgumentCount(&'static str, usize, usize),
+}
+
+type IntrinsicsResult = Result<Value, Error>;
 
 pub fn intrinsics() -> HashMap<String, Value> {
     let mut vars = HashMap::new();
@@ -18,21 +29,16 @@ pub fn intrinsics() -> HashMap<String, Value> {
     vars
 }
 
-fn str_replace(ipt: &mut [Value]) -> Value {
-    assert_eq!(ipt.len(), 3);
-    let Value::Str(haystack) = ipt[0].clone() else {
-        panic!("wrong type")
-    };
-    let Value::Str(needle) = ipt[1].clone() else {
-        panic!("wrong type")
-    };
-    let Value::Str(replacement) = ipt[2].clone() else {
-        panic!("wrong type")
-    };
-    Value::Str(haystack.replace(&needle, &replacement))
+const fn expect_args(ipt: &[Value], num: usize, func: &'static str) -> Result<(), Error> {
+    if ipt.len() == num {
+        Ok(())
+    } else {
+        Err(Error::ArgumentCount(func, num, ipt.len()))
+    }
 }
 
-fn print_val(ipt: &mut [Value]) -> Value {
+#[allow(clippy::unnecessary_wraps)]
+fn print_val(ipt: &mut [Value]) -> IntrinsicsResult {
     let mut first = true;
     for val in ipt {
         if !first {
@@ -42,53 +48,77 @@ fn print_val(ipt: &mut [Value]) -> Value {
         print!("{val}");
     }
     println!();
-    Value::None
+    Ok(Value::None)
 }
 
-fn split_str(ipt: &mut [Value]) -> Value {
-    assert_eq!(ipt.len(), 2);
-    let arg = ipt[0].clone();
-    let splitter = ipt[1].clone();
-    match (arg, splitter) {
-        (Value::Str(a), Value::Str(s)) => {
-            Value::array(a.split(&s).map(|s| Value::Str(s.into())).collect())
+macro_rules! count {
+    () => {
+        0
+    };
+    ({$p:ident => $t:ty}, $({$pattern:ident => $type:ty}),* $(,)? ) => {
+        1 + count!( $( {$pattern => $type},)*)
+    };
+}
+macro_rules! get_args {
+    ($args:expr, $func:expr, {$pattern:ident => $type:ty}) => {{
+        fn _get(ipt: &[Value]) -> Result<$type, Error> {
+            expect_args(ipt, 1, $func)?;
+            Ok(match &ipt[0] {
+                Value::$pattern(s) => s.clone(),
+                _ => return Err(Error::TypeError($func, stringify!($pattern), ipt[0].clone())),
+            })
         }
-        (a, b) => todo!("{a} {b}"),
-    }
+        _get($args)
+    }};
+    ($args:expr, $func:expr, $({$pattern:ident => $type:ty}),*) => {{
+        #[allow(unused_assignments)]
+        fn _get(ipt: &[Value]) -> Result<($($type),*), Error> {
+            expect_args(ipt, count!($({$pattern => $type}),*), $func)?;
+            let mut i = 0;
+            Ok(($({let val = match &ipt[i] {
+                Value::$pattern(s) => s.clone(),
+                _ => return Err(Error::TypeError($func, stringify!($pattern), ipt[i].clone())),
+            };
+            i += 1;
+            val
+            }),*))
+        }
+        _get($args)
+    }}
 }
 
-fn join_str(ipt: &mut [Value]) -> Value {
-    assert_eq!(ipt.len(), 2);
-    let arg = ipt[0].clone();
-    let joiner = ipt[1].clone();
-    match (arg, joiner) {
-        (Value::Array(a), Value::Str(s)) => Value::Str(
-            a.borrow()
-                .iter()
-                .map(ToString::to_string)
-                .collect::<Vec<_>>()
-                .join(&s),
-        ),
-        (a, b) => todo!("{a} {b}"),
-    }
+fn split_str(ipt: &mut [Value]) -> IntrinsicsResult {
+    let (arg, splitter) = get_args!(ipt, "split", { Str => String }, { Str => String })?;
+    Ok(Value::array(
+        arg.split(&splitter).map(|s| Value::Str(s.into())).collect(),
+    ))
 }
 
-fn collect(ipt: &mut [Value]) -> Value {
-    assert_eq!(ipt.len(), 1);
-    let arg = ipt[0].clone();
-    match arg {
-        Value::Iterable(a) => Value::array(a.collect()),
-        a => todo!("{a}"),
-    }
+fn join_str(ipt: &mut [Value]) -> IntrinsicsResult {
+    let (arg, joiner) =
+        get_args!(ipt, "join", { Array => Rc<RefCell<Vec<Value>>> }, { Str => String })?;
+    let vals = arg.borrow().iter().cloned().collect::<Vec<_>>();
+    let strings = vals.iter().map(ToString::to_string).collect::<Vec<_>>();
+    Ok(Value::Str(strings.join(&joiner)))
 }
 
-fn push(ipt: &mut [Value]) -> Value {
-    eprintln!("{ipt:?}");
-    assert_eq!(ipt.len(), 2);
+fn collect(ipt: &mut [Value]) -> IntrinsicsResult {
+    let arg = get_args!(ipt, "join", { Iterable => Iterable})?;
+    Ok(Value::array(arg.collect()))
+}
+
+fn push(ipt: &mut [Value]) -> IntrinsicsResult {
+    expect_args(ipt, 2, "push")?;
     let val = ipt[1].clone();
     match &mut ipt[0] {
         Value::Array(a) => a.borrow_mut().push(val),
         a => todo!("{a}"),
     }
-    Value::None
+    Ok(Value::None)
+}
+
+fn str_replace(ipt: &mut [Value]) -> IntrinsicsResult {
+    let (haystack, needle, replacement) =
+        get_args!(ipt, "replace", { Str => String }, { Str => String }, { Str => String })?;
+    Ok(Value::Str(haystack.replace(&needle, &replacement)))
 }

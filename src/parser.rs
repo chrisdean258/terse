@@ -547,9 +547,7 @@ where
                 TokenKind::Identifier(s) => DeclIds::One(s),
                 TokenKind::OpenParen => {
                     let token = self.must_next_token("open paren or identifier")?;
-                    let sub_ids = self.ids(token, true)?;
-                    // expect!(self => token { TokenKind::CloseParen => (), });
-                    sub_ids
+                    self.ids(token, true)?
                 }
             });
             expect!(self => token {

@@ -3,7 +3,7 @@ use crate::{
         AssignmentKind, BinOpKind, DeclIds, DeclarationKind, FlatBinOpKind, LValueKind, RValueKind,
         ShortCircuitBinOpKind, UntypedExpr, UntypedExprKind, UntypedLValue,
     },
-    intrinsics::intrinsics,
+    intrinsics::{intrinsics, Error as IntrinsicsError},
     parser::Ast,
     span::Span,
     value::Value,
@@ -53,6 +53,8 @@ pub enum Error {
     BadConversion(#[from] std::num::TryFromIntError),
     #[error("{0}: `{1}` was declared as a constant with the `let` keyword")]
     VariableIsConstant(Span, String),
+    #[error("{0}")]
+    TypeErrorInIntrinsic(#[from] IntrinsicsError),
 }
 
 pub struct ScopeTable {
@@ -67,6 +69,12 @@ enum FlowControl {
 impl From<Error> for FlowControl {
     fn from(err: Error) -> Self {
         Self::Error(err)
+    }
+}
+
+impl From<IntrinsicsError> for FlowControl {
+    fn from(err: IntrinsicsError) -> Self {
+        Self::Error(Error::TypeErrorInIntrinsic(err))
     }
 }
 
@@ -550,7 +558,7 @@ impl Interpretter {
         span: &Span,
     ) -> InterpretterResult {
         match callable {
-            Value::ExternalFunc(c) => Ok(c(&mut args)),
+            Value::ExternalFunc(c) => Ok(c(&mut args)?),
             Value::Lambda(l) => {
                 self.scopes.open();
                 self.lambda_args.push(args);
