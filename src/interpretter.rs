@@ -57,6 +57,8 @@ pub enum Error {
     TypeErrorInIntrinsic(#[from] IntrinsicsError),
     #[error("{0}: `{1}` was moved")]
     VariableWasMoved(Span, String),
+    #[error("Illegal flow control. Break or continue not in a loop")]
+    IllegalFlowControl,
 }
 
 pub struct ScopeTable {
@@ -66,6 +68,7 @@ pub struct ScopeTable {
 #[derive(Debug)]
 enum FlowControl {
     Error(Error),
+    Break(Value),
 }
 
 impl From<Error> for FlowControl {
@@ -170,10 +173,11 @@ impl Interpretter {
     pub fn interpret(&mut self, ast: &Ast) -> Result<Value, Error> {
         let mut val = Value::None;
         for expr in &ast.exprs {
-            val = self.expr(expr).map_err(|e| {
-                let FlowControl::Error(ie) = e;
-                ie
-            })?;
+            val = match self.expr(expr) {
+                Err(FlowControl::Error(ie)) => Err(ie)?,
+                Err(FlowControl::Break(_e)) => Err(Error::IllegalFlowControl)?,
+                Ok(v) => v,
+            }
         }
         Ok(val)
     }
@@ -210,6 +214,7 @@ impl Interpretter {
                     let v = self.expr(value)?;
                     self.declaration(*kind, names, v, &expr.span)
                 }
+                RValueKind::Break(expr) => self.break_(expr),
             },
             UntypedExprKind::LValue(l) => self.lval(l, &expr.span),
         }
@@ -562,9 +567,12 @@ impl Interpretter {
         loop {
             let condition_val = self.expr(condition)?;
             match condition_val {
-                Value::Bool(true) => {
-                    self.expr(body)?;
-                }
+                Value::Bool(true) => match self.expr(body) {
+                    Err(FlowControl::Break(v)) => return Ok(v),
+                    a => {
+                        a?;
+                    }
+                },
                 Value::Bool(false) => break,
                 _ => {
                     return Err(FlowControl::Error(Error::NonBoolCondition(
@@ -747,5 +755,13 @@ impl Interpretter {
             },
         }
         Ok(Value::None)
+    }
+
+    fn break_(&mut self, subexpr: &Option<Box<UntypedExpr>>) -> InterpretterResult {
+        Err(FlowControl::Break(if let Some(s) = subexpr {
+            self.expr(s)?
+        } else {
+            Value::None
+        }))
     }
 }

@@ -108,6 +108,7 @@ pub enum RValueKind {
     LambdaArg(usize),
     Lambda(Rc<UntypedExpr>),
     Array(Vec<UntypedExpr>),
+    Break(Option<SubExpr>),
 }
 
 #[derive(Clone, Debug, Copy, PartialEq, Eq)]
@@ -270,6 +271,13 @@ impl Display for RValueKind {
                 write!(f, "]")
             }
             Self::Declaration { kind, names, value } => write!(f, "{kind} {names} = {value}"),
+            Self::Break(s) => {
+                write!(f, "break")?;
+                if let Some(subexpr) = s {
+                    write!(f, " {subexpr}")?
+                }
+                Ok(())
+            }
         }
     }
 }

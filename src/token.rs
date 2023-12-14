@@ -78,6 +78,7 @@ pub enum Kind {
     While,
     Let,
     Var,
+    Break,
 }
 
 impl Display for Kind {
@@ -152,6 +153,7 @@ impl Display for Kind {
             Self::While => write!(f, "while"),
             Self::Let => write!(f, "let"),
             Self::Var => write!(f, "var"),
+            Self::Break => write!(f, "break"),
         }
     }
 }

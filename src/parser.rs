@@ -156,7 +156,13 @@ where
     fn parse_expr(&mut self) -> Option<ParseResult> {
         match self.lexer.next()? {
             Err(e) => Some(Err(ParseError::LexError(e))),
-            Ok(t) => Some(self.expr(t)),
+            Ok(t) => match t.value {
+                TokenKind::CloseParen | TokenKind::CloseBrace | TokenKind::CloseBracket => {
+                    self.lexer.put_back(Ok(t));
+                    None
+                }
+                _ => Some(self.expr(t)),
+            },
         }
     }
 
@@ -391,6 +397,7 @@ where
             TokenKind::For => self.for_(token)?,
             TokenKind::If => self.if_(token)?,
             TokenKind::While => self.while_(token)?,
+            TokenKind::Break => self.break_(token)?,
             a => todo!("{}:{a:?}", token.span),
         })
     }
@@ -459,7 +466,7 @@ where
         let mut exprs = Vec::new();
         loop {
             let Some(token) = self.lexer.next() else {
-                return Err(ParseError::UnexpectedEOF("expression expression in block"));
+                return Err(ParseError::UnexpectedEOF("expression in block"));
             };
             let token = token?;
             if TokenKind::CloseBrace == token.value {
@@ -582,5 +589,20 @@ where
             ids.push(id);
             Ok(DeclIds::Many(ids))
         }
+    }
+
+    fn break_(&mut self, token: Token) -> ParseResult {
+        let mut span = token.span;
+        let subexpr = if let Some(subexpr) = self.parse_expr() {
+            let subexpr = subexpr?;
+            span = span.to(&subexpr.span);
+            Some(Box::new(subexpr))
+        } else {
+            None
+        };
+        Ok(UntypedExpr {
+            span,
+            value: UntypedExprKind::RValue(RValueKind::Break(subexpr)),
+        })
     }
 }

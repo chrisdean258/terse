@@ -341,6 +341,7 @@ impl Lexer {
                 "fn" => TokenKind::Function,
                 "let" => TokenKind::Let,
                 "var" => TokenKind::Var,
+                "break" => TokenKind::Break,
                 _ => TokenKind::Identifier(id),
             },
         }
