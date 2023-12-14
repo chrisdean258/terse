@@ -274,8 +274,8 @@ impl Display for RValueKind {
             Self::Break(s) => {
                 write!(f, "break")?;
                 if let Some(subexpr) = s {
-                    write!(f, " {subexpr}")?
-                }
+                    write!(f, " {subexpr}")?;
+                };
                 Ok(())
             }
         }

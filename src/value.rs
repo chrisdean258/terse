@@ -143,3 +143,63 @@ impl Debug for Value {
         }
     }
 }
+
+impl PartialEq for Value {
+    #[allow(clippy::cognitive_complexity)]
+    #[allow(clippy::cast_precision_loss)]
+    fn eq(&self, other: &Self) -> bool {
+        match self {
+            Self::None => matches!(other, Self::None),
+            Self::Integer(a) => {
+                matches!(other, Self::Integer(b) if a == b)
+                    || matches!(other, Self::Float(b) if *a as f64 == *b)
+                    || matches!(other, Self::Char(b) if *a == *b as i64)
+            }
+            Self::Float(a) => {
+                matches!(other, Self::Integer(b) if *a == *b as f64)
+                    || matches!(other, Self::Float(b) if a == b)
+            }
+            Self::Str(a) => matches!(other, Self::Str(b) if a == b),
+            Self::Tuple(a) => matches!(other, Self::Tuple(b) if a == b),
+            Self::Bool(a) => matches!(other, Self::Bool(b) if a == b),
+            Self::Char(a) => {
+                matches!(other, Self::Integer(b) if *a as i64 == *b)
+                    || matches!(other, Self::Char(b) if a == b)
+            }
+            Self::ExternalFunc(a) => matches!(other, Self::ExternalFunc(b) if a == b),
+            Self::Lambda(a) => matches!(other, Self::Lambda(b) if Rc::ptr_eq(a,b)),
+            Self::Iterable(_) | Self::Array(_) => false,
+        }
+    }
+}
+
+macro_rules! cmp {
+
+    ($self:ident, $other:ident => { $($first:ident$(($t1:ty))?  $second:ident$(($t2:ty))?),* $(,)?  }) => {
+        match ($self, $other) {
+            $((Self::$first(a), Self::$second(b)) if *a $(as $t1)? < *b $(as $t2)? => Some(std::cmp::Ordering::Less),)*
+            $((Self::$first(a), Self::$second(b)) if *a $(as $t1)? > *b $(as $t2)? => Some(std::cmp::Ordering::Greater),)*
+            $((Self::$second(a), Self::$first(b)) if *a $(as $t2)? < *b $(as $t1)? => Some(std::cmp::Ordering::Less),)*
+            $((Self::$second(a), Self::$first(b)) if *a $(as $t2)? > *b $(as $t1)? => Some(std::cmp::Ordering::Greater),)*
+            _ => None
+        }
+    };
+}
+
+impl PartialOrd for Value {
+    #[allow(clippy::cast_precision_loss)]
+    #[allow(clippy::cognitive_complexity)]
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        if self.eq(other) {
+            return Some(std::cmp::Ordering::Equal);
+        }
+        cmp!(self, other => {
+            Integer  Integer,
+            Float  Float ,
+            Float  Integer(f64),
+            Integer  Char(i64),
+            Str Str,
+            Tuple Tuple,
+        })
+    }
+}

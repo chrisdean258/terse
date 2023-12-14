@@ -22,8 +22,8 @@ pub enum Error {
     ShortCircuitBinOpErrorOne(Span, Value, ShortCircuitBinOpKind),
     #[error("{0}: Cannot evaluate `{1} {2} {3}`")]
     ShortCircuitBinOpErrorTwo(Span, Value, ShortCircuitBinOpKind, Value),
-    #[error("{0}: Cannot evaluate `{1} {2} {3}`")]
-    FlatBinOp(Span, Value, FlatBinOpKind, Value),
+    // #[error("{0}: Cannot evaluate `{1} {2} {3}`")]
+    // FlatBinOp(Span, Value, FlatBinOpKind, Value),
     #[error("{0}: Cannot evaluate `{1} {2} {3}`")]
     BinOp(Span, Value, BinOpKind, Value),
     #[error("{0}: Divide by zero")]
@@ -334,57 +334,25 @@ impl Interpretter {
 
     fn flat_binop(
         &mut self,
-        span: &Span,
+        _span: &Span,
         first: &UntypedExpr,
         rest: &[(FlatBinOpKind, Box<UntypedExpr>)],
     ) -> InterpretterResult {
-        let mut result = self.expr(first)?;
+        let mut left_val = self.expr(first)?;
+        let mut result = true;
         for (op, expr) in rest {
             let right_val = self.expr(expr)?;
-            result = match (result, op, right_val) {
-                (Value::Str(l), FlatBinOpKind::CmpEquals, Value::Str(r)) => {
-                    assert!(rest.len() < 2, "Chained comparisons not implmented yet");
-                    Value::Bool(l == r)
-                }
-                (Value::Str(l), FlatBinOpKind::CmpNotEquals, Value::Str(r)) => {
-                    assert!(rest.len() < 2, "Chained comparisons not implmented yet");
-                    Value::Bool(l != r)
-                }
-                (Value::Char(l), FlatBinOpKind::LessThanOrEqual, Value::Char(r)) => {
-                    assert!(rest.len() < 2, "Chained comparisons not implmented yet");
-                    Value::Bool(l <= r)
-                }
-                (Value::Char(l), FlatBinOpKind::LessThan, Value::Char(r)) => {
-                    assert!(rest.len() < 2, "Chained comparisons not implmented yet");
-                    Value::Bool(l < r)
-                }
-                (Value::Integer(l), FlatBinOpKind::CmpEquals, Value::Integer(r)) => {
-                    assert!(rest.len() < 2, "Chained comparisons not implmented yet");
-                    Value::Bool(l == r)
-                }
-                (Value::Integer(l), FlatBinOpKind::GreaterThan, Value::Integer(r)) => {
-                    assert!(rest.len() < 2, "Chained comparisons not implmented yet");
-                    Value::Bool(l > r)
-                }
-                (Value::Integer(l), FlatBinOpKind::LessThan, Value::Integer(r)) => {
-                    assert!(rest.len() < 2, "Chained comparisons not implmented yet");
-                    Value::Bool(l < r)
-                }
-                (Value::Integer(l), FlatBinOpKind::LessThanOrEqual, Value::Integer(r)) => {
-                    assert!(rest.len() < 2, "Chained comparisons not implmented yet");
-                    Value::Bool(l <= r)
-                }
-                (l, op, r) => {
-                    return Err(FlowControl::Error(Error::FlatBinOp(
-                        span.clone(),
-                        l,
-                        *op,
-                        r,
-                    )))
-                }
-            }
+            result = match op {
+                FlatBinOpKind::CmpEquals => left_val == right_val,
+                FlatBinOpKind::CmpNotEquals => left_val != right_val,
+                FlatBinOpKind::GreaterThan => left_val > right_val,
+                FlatBinOpKind::LessThan => left_val < right_val,
+                FlatBinOpKind::GreaterThanOrEqual => left_val >= right_val,
+                FlatBinOpKind::LessThanOrEqual => left_val <= right_val,
+            };
+            left_val = right_val;
         }
-        Ok(result)
+        Ok(Value::Bool(result))
     }
 
     fn assignment(
