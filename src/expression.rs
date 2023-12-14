@@ -96,6 +96,10 @@ pub enum RValueKind {
         condition: SubExpr,
         body: SubExpr,
     },
+    While {
+        condition: SubExpr,
+        body: SubExpr,
+    },
     Call {
         callable: SubExpr,
         args: Vec<UntypedExpr>,
@@ -228,6 +232,9 @@ impl Display for RValueKind {
             }
             Self::If { condition, body } => {
                 writeln!(f, "if {condition}\n{body}")
+            }
+            Self::While { condition, body } => {
+                writeln!(f, "while {condition}\n{body}")
             }
             Self::Block(exprs) => {
                 writeln!(f, "{{")?;

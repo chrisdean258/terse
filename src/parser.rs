@@ -388,6 +388,9 @@ where
             TokenKind::OpenBrace => self.block(token)?,
             TokenKind::Function => self.function(token)?,
             TokenKind::OpenBracket => self.array(token)?,
+            TokenKind::For => self.for_(token)?,
+            TokenKind::If => self.if_(token)?,
+            TokenKind::While => self.while_(token)?,
             a => todo!("{}:{a:?}", token.span),
         })
     }
@@ -497,6 +500,17 @@ where
         Ok(UntypedExpr {
             span: if_token.span.to(&body.span),
             value: UntypedExprKind::RValue(RValueKind::If { condition, body }),
+        })
+    }
+
+    fn while_(&mut self, while_token: Token) -> ParseResult {
+        let token = self.must_next_token("condition in while")?;
+        let condition = Box::new(self.expr(token)?);
+        let token = self.must_next_token("body in while")?;
+        let body = Box::new(self.expr(token)?);
+        Ok(UntypedExpr {
+            span: while_token.span.to(&body.span),
+            value: UntypedExprKind::RValue(RValueKind::While { condition, body }),
         })
     }
 

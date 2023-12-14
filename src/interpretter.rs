@@ -34,8 +34,8 @@ pub enum Error {
     CannotIterateOver(Span, Value),
     #[error("{0}: No variable with the name `{1}` exists")]
     NoSuchVariable(Span, String),
-    #[error("{0}: Non boolean value `{1}` in if condition")]
-    NonBoolIfCondition(Span, Value),
+    #[error("{0}: Non boolean value `{1}` in flow control condition")]
+    NonBoolCondition(Span, Value),
     #[error("{0}: `{1}` is not callable")]
     NotCallable(Span, Value),
     #[error("{0}: Reference to `\\{1}` in lambda only supplied with {2} arguments")]
@@ -200,6 +200,7 @@ impl Interpretter {
                 }
                 RValueKind::For { item, items, body } => self.for_(item, items, body),
                 RValueKind::If { condition, body } => self.if_(condition, body),
+                RValueKind::While { condition, body } => self.while_(condition, body),
                 RValueKind::Block(exprs) => self.block(exprs),
                 RValueKind::Call { callable, args } => self.call(callable, args, &expr.span),
                 RValueKind::Lambda(subexpr) => Ok(Value::Lambda(subexpr.clone())),
@@ -548,10 +549,29 @@ impl Interpretter {
             }
             Value::Bool(false) => {}
             _ => {
-                return Err(FlowControl::Error(Error::NonBoolIfCondition(
+                return Err(FlowControl::Error(Error::NonBoolCondition(
                     condition.span.clone(),
                     condition_val,
                 )))
+            }
+        }
+        Ok(Value::None)
+    }
+
+    fn while_(&mut self, condition: &UntypedExpr, body: &UntypedExpr) -> InterpretterResult {
+        loop {
+            let condition_val = self.expr(condition)?;
+            match condition_val {
+                Value::Bool(true) => {
+                    self.expr(body)?;
+                }
+                Value::Bool(false) => break,
+                _ => {
+                    return Err(FlowControl::Error(Error::NonBoolCondition(
+                        condition.span.clone(),
+                        condition_val,
+                    )))
+                }
             }
         }
         Ok(Value::None)
