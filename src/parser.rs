@@ -189,8 +189,6 @@ where
 
     fn expr(&mut self, token: Token) -> ParseResult {
         match token.value {
-            TokenKind::For => self.for_(token),
-            TokenKind::If => self.if_(token),
             TokenKind::Let | TokenKind::Var => self.declaration(token),
             _ => self.equals(token),
         }
@@ -504,9 +502,26 @@ where
         let condition = Box::new(self.expr(token)?);
         let token = self.must_next_token("body in if")?;
         let body = Box::new(self.expr(token)?);
+        // This does not bring joy
+        let else_ = if let Some(token) = self.lexer.next() {
+            let token = token?;
+            if matches!(token.value, TokenKind::Else) {
+                let token = self.must_next_token("else expression")?;
+                Some(Box::new(self.expr(token)?))
+            } else {
+                self.lexer.put_back(Ok(token));
+                None
+            }
+        } else {
+            None
+        };
         Ok(UntypedExpr {
             span: if_token.span.to(&body.span),
-            value: UntypedExprKind::RValue(RValueKind::If { condition, body }),
+            value: UntypedExprKind::RValue(RValueKind::If {
+                condition,
+                body,
+                else_,
+            }),
         })
     }
 

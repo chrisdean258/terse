@@ -95,6 +95,7 @@ pub enum RValueKind {
     If {
         condition: SubExpr,
         body: SubExpr,
+        else_: Option<SubExpr>,
     },
     While {
         condition: SubExpr,
@@ -231,8 +232,19 @@ impl Display for RValueKind {
             Self::For { item, items, body } => {
                 writeln!(f, "for {item} in {items}\n{body}")
             }
-            Self::If { condition, body } => {
+            Self::If {
+                condition,
+                body,
+                else_: None,
+            } => {
                 writeln!(f, "if {condition}\n{body}")
+            }
+            Self::If {
+                condition,
+                body,
+                else_: Some(e),
+            } => {
+                writeln!(f, "if {condition}\n{body}{e}")
             }
             Self::While { condition, body } => {
                 writeln!(f, "while {condition}\n{body}")

@@ -203,7 +203,11 @@ impl Interpretter {
                     self.assignment(left, *op, right, &expr.span)
                 }
                 RValueKind::For { item, items, body } => self.for_(item, items, body),
-                RValueKind::If { condition, body } => self.if_(condition, body),
+                RValueKind::If {
+                    condition,
+                    body,
+                    else_,
+                } => self.if_(condition, body, else_.as_ref().map(AsRef::as_ref)),
                 RValueKind::While { condition, body } => self.while_(condition, body),
                 RValueKind::Block(exprs) => self.block(exprs),
                 RValueKind::Call { callable, args } => self.call(callable, args, &expr.span),
@@ -214,7 +218,7 @@ impl Interpretter {
                     let v = self.expr(value)?;
                     self.declaration(*kind, names, v, &expr.span)
                 }
-                RValueKind::Break(expr) => self.break_(expr),
+                RValueKind::Break(expr) => self.break_(expr.as_ref().map(AsRef::as_ref)),
             },
             UntypedExprKind::LValue(l) => self.lval(l, &expr.span),
         }
@@ -514,21 +518,22 @@ impl Interpretter {
         Ok(Value::None)
     }
 
-    fn if_(&mut self, condition: &UntypedExpr, body: &UntypedExpr) -> InterpretterResult {
+    fn if_(
+        &mut self,
+        condition: &UntypedExpr,
+        body: &UntypedExpr,
+        else_: Option<&UntypedExpr>,
+    ) -> InterpretterResult {
         let condition_val = self.expr(condition)?;
-        match condition_val {
-            Value::Bool(true) => {
-                self.expr(body)?;
-            }
-            Value::Bool(false) => {}
-            _ => {
-                return Err(FlowControl::Error(Error::NonBoolCondition(
-                    condition.span.clone(),
-                    condition_val,
-                )))
-            }
+        match (&condition_val, else_) {
+            (Value::Bool(true), _) => self.expr(body),
+            (Value::Bool(false), Some(else_)) => self.expr(else_),
+            (Value::Bool(false), None) => Ok(Value::None),
+            _ => Err(FlowControl::Error(Error::NonBoolCondition(
+                condition.span.clone(),
+                condition_val,
+            ))),
         }
-        Ok(Value::None)
     }
 
     fn while_(&mut self, condition: &UntypedExpr, body: &UntypedExpr) -> InterpretterResult {
@@ -725,7 +730,7 @@ impl Interpretter {
         Ok(Value::None)
     }
 
-    fn break_(&mut self, subexpr: &Option<Box<UntypedExpr>>) -> InterpretterResult {
+    fn break_(&mut self, subexpr: Option<&UntypedExpr>) -> InterpretterResult {
         Err(FlowControl::Break(if let Some(s) = subexpr {
             self.expr(s)?
         } else {
