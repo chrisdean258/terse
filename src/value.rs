@@ -7,6 +7,7 @@ use std::{
 
 pub enum Value {
     None,
+    Moved,
     Integer(i64),
     Float(f64),
     Str(String),
@@ -58,7 +59,7 @@ impl Value {
     }
 
     pub fn clone_or_take(&mut self) -> Self {
-        let mut cln = self.try_clone().unwrap_or(Self::None);
+        let mut cln = self.try_clone().unwrap_or(Self::Moved);
         std::mem::swap(&mut cln, self);
         cln
     }
@@ -68,6 +69,7 @@ impl Display for Value {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
         match self {
             Self::None => write!(f, "none"),
+            Self::Moved => write!(f, "moved!"),
             Self::Bool(b) => write!(f, "{b}"),
             Self::Integer(i) => write!(f, "{i}"),
             Self::Float(fl) => write!(f, "{fl}"),
@@ -108,6 +110,7 @@ impl Debug for Value {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
         match self {
             Self::None => write!(f, "none"),
+            Self::Moved => write!(f, "moved!"),
             Self::Bool(b) => write!(f, "{b}"),
             Self::Integer(i) => write!(f, "{i}"),
             Self::Float(fl) => write!(f, "{fl}"),
@@ -168,14 +171,14 @@ impl PartialEq for Value {
             }
             Self::ExternalFunc(a) => matches!(other, Self::ExternalFunc(b) if a == b),
             Self::Lambda(a) => matches!(other, Self::Lambda(b) if Rc::ptr_eq(a,b)),
-            Self::Iterable(_) | Self::Array(_) => false,
+            Self::Iterable(_) | Self::Array(_) | Self::Moved => false,
         }
     }
 }
 
 macro_rules! cmp {
 
-    ($self:ident, $other:ident => { $($first:ident$(($t1:ty))?  $second:ident$(($t2:ty))?),* $(,)?  }) => {
+    ($self:ident, $other:ident => { $($first:ident$(($t1:ty))? <=> $second:ident$(($t2:ty))?),* $(,)?  }) => {
         match ($self, $other) {
             $((Self::$first(a), Self::$second(b)) if *a $(as $t1)? < *b $(as $t2)? => Some(std::cmp::Ordering::Less),)*
             $((Self::$first(a), Self::$second(b)) if *a $(as $t1)? > *b $(as $t2)? => Some(std::cmp::Ordering::Greater),)*
@@ -194,12 +197,12 @@ impl PartialOrd for Value {
             return Some(std::cmp::Ordering::Equal);
         }
         cmp!(self, other => {
-            Integer  Integer,
-            Float  Float ,
-            Float  Integer(f64),
-            Integer  Char(i64),
-            Str Str,
-            Tuple Tuple,
+            Integer <=> Integer,
+            Float <=> Float ,
+            Float <=> Integer(f64),
+            Integer <=> Char(i64),
+            Str <=> Str,
+            Tuple <=> Tuple,
         })
     }
 }

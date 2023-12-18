@@ -1,3 +1,0 @@
-let a = []
-push(a, "test")
-print(a)

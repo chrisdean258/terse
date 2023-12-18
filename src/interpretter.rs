@@ -88,7 +88,6 @@ type InterpretterResult = Result<Value, FlowControl>;
 enum GetMutError {
     NoSuchKey,
     IsLetVar,
-    Moved,
 }
 impl ScopeTable {
     fn new(presets: HashMap<String, (Value, DeclarationKind)>) -> Self {
@@ -118,30 +117,20 @@ impl ScopeTable {
                 return match k {
                     DeclarationKind::Var => Ok(v),
                     DeclarationKind::Let => Err(GetMutError::IsLetVar),
-                    DeclarationKind::Moved => Err(GetMutError::Moved),
                 };
             }
         }
         Err(GetMutError::NoSuchKey)
     }
 
-    fn clone_or_take(&mut self, key: &str) -> Result<Value, GetMutError> {
+    fn clone_or_take(&mut self, key: &str) -> Option<Value> {
         for scope in self.scopes.iter_mut().rev() {
-            if let Some((k, (v, kind))) = scope.remove_entry(key) {
-                if matches!(kind, DeclarationKind::Moved) {
-                    return Err(GetMutError::Moved);
-                }
-                if let Some(vv) = v.try_clone() {
-                    scope.insert(k, (v, kind));
-                    return Ok(vv);
-                }
-                if matches!(kind, DeclarationKind::Let) {
-                    scope.insert(k, (Value::None, DeclarationKind::Moved));
-                    return Ok(v);
-                }
+            if let Some((v, _)) = scope.get_mut(key) {
+                // we can take out of `let` or `var` decls
+                return Some(v.clone_or_take());
             }
         }
-        Err(GetMutError::NoSuchKey)
+        None
     }
 
     pub fn open(&mut self) {
@@ -407,12 +396,6 @@ impl Interpretter {
                         s.clone(),
                     )))
                 }
-                Err(GetMutError::Moved) => {
-                    return Err(FlowControl::Error(Error::VariableWasMoved(
-                        span.clone(),
-                        s.clone(),
-                    )))
-                }
             },
             (LValueKind::Tuple(lvals), Value::Tuple(t)) => {
                 if lvals.len() != t.len() {
@@ -560,16 +543,15 @@ impl Interpretter {
 
     fn variable(&mut self, span: &Span, name: &str) -> InterpretterResult {
         match self.scopes.clone_or_take(name) {
-            Ok(v) => Ok(v),
-            Err(GetMutError::NoSuchKey) => Err(FlowControl::Error(Error::NoSuchVariable(
+            Some(Value::Moved) => Err(FlowControl::Error(Error::VariableWasMoved(
                 span.clone(),
                 name.to_owned(),
             ))),
-            Err(GetMutError::Moved) => Err(FlowControl::Error(Error::VariableWasMoved(
+            Some(v) => Ok(v),
+            None => Err(FlowControl::Error(Error::NoSuchVariable(
                 span.clone(),
                 name.to_owned(),
             ))),
-            _ => unreachable!(),
         }
     }
 
