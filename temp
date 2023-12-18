@@ -1,0 +1,30 @@
+macro_rules! op {
+
+    ($trait_name:ident, $funcname:ident => { $($first:ident$(($t1:ty))? $op:tt  $second:ident$(($t2:ty))?),* $(,)?  }) => {
+        impl $trait_name for Value {
+            type Output = Option<Self>
+            fn $funcname(&self, other: &Self) -> Self::Output {
+                match (self, other) {
+                    $((Self::$first(a), Self::$second(b)) => Some(*a $(as $t1)? $op *b $(as $t2)?),)*
+                    $((Self::$second(a), Self::$second(b)) => Some(*a $(as $t2)? $op *b $(as $t1)?),)*
+                    _ => None
+                }
+            }
+        }
+    };
+}
+// Add
+// BitAnd
+// BitOr
+// BitXor
+// Div
+// Index
+// IndexMut
+// Mul
+// Neg
+// Not
+// RangeBounds
+// Rem
+// Shl
+// Shr
+// Sub

@@ -1,0 +1,2 @@
+if 1 < 2 <= 2 < 3 print("Hello, World!")
+if 1 < 2 <= 2 > 3 print("Hello, World 2")

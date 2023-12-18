@@ -206,3 +206,91 @@ impl PartialOrd for Value {
         })
     }
 }
+
+macro_rules! op {
+
+    ($trait_name:ident, $funcname:ident => { $($first:ident($($t1:ty)?) $op:tt  $(($r:tt))?$second:ident($($t2:ty)?) => $out:ident$(($t3:ty))?),* $(,)?  }) => {
+        impl std::ops::$trait_name for Value {
+            type Output = Result<Self, (Self, Self)>;
+            fn $funcname(self, other: Self) -> Self::Output {
+                match (self, other) {
+                    $((Self::$first(a), Self::$second(b)) => Ok(Value::$out((a $(as $t1)? $op $($r)?b $(as $t2)?) $(as $t3)?)),)*
+                    // $((Self::$second(a), Self::$second(b)) => Some(Value::$out(a $(as $t2)? $op b $(as $t1)?)),)*
+                    (a,b) => Err((a, b))
+                }
+            }
+        }
+    };
+}
+
+op!(Add, add => {
+    Integer() + Integer() => Integer,
+    Integer(f64) + Float() => Float,
+    Float() + Integer(f64) => Float,
+    Char(u8) + Integer(u8) => Char(char),
+    Integer(u8) + Char(u8) => Char(char),
+    Bool(i64) + Bool(i64) => Integer,
+    Bool(i64) + Integer() => Integer,
+    Integer() + Bool(i64) => Integer,
+    Str() + (&)Str() => Str,
+});
+
+op!(Sub, sub => {
+    Integer() - Integer() => Integer,
+    Integer(f64) - Float() => Float,
+    Float() - Integer(f64) => Float,
+    Float() - Float() => Float,
+    Char(u8) - Integer(u8) => Char(char),
+    Char(u8) - Char(u8) => Integer(i64),
+    Integer(u8) - Char(u8) => Char(char),
+    Bool(i64) - Bool(i64) => Integer,
+    Bool(i64) - Integer() => Integer,
+    Integer() - Bool(i64) => Integer,
+});
+
+op!(BitAnd, bitand => {
+    Integer() & Integer() => Integer,
+    Bool(i64) & Bool(i64) => Integer,
+});
+
+op!(BitOr, bitor => {
+    Integer() | Integer() => Integer,
+    Bool(i64) | Bool(i64) => Integer,
+});
+
+op!(BitXor, bitxor => {
+    Integer() ^ Integer() => Integer,
+    Bool(i64) ^ Bool(i64) => Integer,
+});
+
+op!(Shl, shl => {
+    Integer() << Integer() => Integer,
+});
+
+op!(Shr, shr => {
+    Integer() >> Integer() => Integer,
+});
+
+op!(Div, div => {
+    Integer(f64) / Integer(f64) => Float,
+    Integer(f64) / Float() => Float,
+    Float() / Integer(f64) => Float,
+});
+
+op!(Mul, mul => {
+    Integer() * Integer() => Integer,
+    Bool(i64) * Integer() => Integer,
+    Integer() * Bool(i64) => Integer,
+    Integer(f64) * Float() => Float,
+    Float() * Integer(f64) => Float,
+});
+
+op!(Rem, rem => {
+    Integer() % Integer() => Integer,
+});
+
+// Index
+// IndexMut
+// Neg
+// Not
+// Rem

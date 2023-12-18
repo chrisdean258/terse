@@ -232,36 +232,48 @@ impl Interpretter {
         use Error::{BinOp, DivideBy0, ModBy0};
         let left_val = self.expr(left)?;
         let right_val = self.expr(right)?;
-        let val = match (left_val, op, right_val) {
-            (Value::Integer(l), Add, Value::Integer(r)) => Value::Integer(l + r),
-            (Value::Integer(l), Subtract, Value::Integer(r)) => Value::Integer(l - r),
-            (Value::Integer(l), Multiply, Value::Integer(r)) => Value::Integer(l * r),
-            (Value::Integer(_), Mod, Value::Integer(0)) => {
-                return Err(FlowControl::Error(ModBy0(span.clone())))
+        match (left_val, op, right_val) {
+            (a, Add, b) => {
+                (a + b).map_err(|(a, b)| FlowControl::Error(BinOp(span.clone(), a, op, b)))
             }
-            (Value::Integer(l), Mod, Value::Integer(r)) => Value::Integer(l % r),
-            (Value::Integer(_), Divide | IntegerDivide, Value::Integer(0)) => {
-                return Err(FlowControl::Error(DivideBy0(span.clone())))
+            (a, Subtract, b) => {
+                (a - b).map_err(|(a, b)| FlowControl::Error(BinOp(span.clone(), a, op, b)))
             }
-            #[allow(clippy::cast_precision_loss)]
-            (Value::Integer(l), Divide, Value::Integer(r)) => Value::Float(l as f64 / r as f64),
-            (Value::Integer(l), IntegerDivide, Value::Integer(r)) => Value::Integer(l / r),
-
-            (Value::Char(l), Subtract, Value::Char(r)) => Value::Integer(l as i64 - r as i64),
-
-            (Value::Float(l), Add, Value::Float(r)) => Value::Float(l + r),
-            (Value::Float(l), Multiply, Value::Float(r)) => Value::Float(l * r),
-            (Value::Float(l), Subtract, Value::Float(r)) => Value::Float(l - r),
-
-            (Value::Str(l), Add, Value::Str(r)) => Value::Str(l + &r),
-            (Value::Tuple(l), Add, Value::Tuple(mut r)) => {
-                let mut t = l;
-                t.append(&mut r);
-                Value::Tuple(t)
+            (a, Multiply, b) => {
+                (a * b).map_err(|(a, b)| FlowControl::Error(BinOp(span.clone(), a, op, b)))
             }
-            (l, op, r) => return Err(FlowControl::Error(BinOp(span.clone(), l, op, r))),
-        };
-        Ok(val)
+            (_, Mod, Value::Integer(0)) => Err(FlowControl::Error(ModBy0(span.clone()))),
+            (_, Divide | IntegerDivide, Value::Integer(0)) => {
+                Err(FlowControl::Error(DivideBy0(span.clone())))
+            }
+            (a, Mod, b) => {
+                (a % b).map_err(|(a, b)| FlowControl::Error(BinOp(span.clone(), a, op, b)))
+            }
+            (a, Divide, b) => {
+                (a / b).map_err(|(a, b)| FlowControl::Error(BinOp(span.clone(), a, op, b)))
+            }
+            // (Value::Integer(_), Mod, Value::Integer(0)) => {
+            // return Err(FlowControl::Error(ModBy0(span.clone())))
+            // }
+            // (Value::Integer(l), Mod, Value::Integer(r)) => Value::Integer(l % r),
+            // #[allow(clippy::cast_precision_loss)]
+            // (Value::Integer(l), Divide, Value::Integer(r)) => Value::Float(l as f64 / r as f64),
+            // (Value::Integer(l), IntegerDivide, Value::Integer(r)) => Value::Integer(l / r),
+
+            // (Value::Char(l), Subtract, Value::Char(r)) => Value::Integer(l as i64 - r as i64),
+
+            // (Value::Float(l), Add, Value::Float(r)) => Value::Float(l + r),
+            // (Value::Float(l), Multiply, Value::Float(r)) => Value::Float(l * r),
+            // (Value::Float(l), Subtract, Value::Float(r)) => Value::Float(l - r),
+
+            // (Value::Str(l), Add, Value::Str(r)) => Value::Str(l + &r),
+            // (Value::Tuple(l), Add, Value::Tuple(mut r)) => {
+            // let mut t = l;
+            // t.append(&mut r);
+            // Value::Tuple(t)
+            // }
+            (l, op, r) => Err(FlowControl::Error(BinOp(span.clone(), l, op, r))),
+        }
     }
 
     fn short_circuit_binop(
