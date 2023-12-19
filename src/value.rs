@@ -208,12 +208,13 @@ impl PartialOrd for Value {
 }
 
 macro_rules! binop {
-    ($trait_name:ident, $funcname:ident => { $($first:ident($($t1:ty)?) $binop:tt  $(($r:tt))?$second:ident($($t2:ty)?) => $out:ident$(($t3:ty))?),* $(,)?  }) => {
+    ($trait_name:ident, $funcname:ident => { $($first:ident($($t1:ty)?) $binop:tt  $(($r:tt))?$second:ident($($t2:ty)?) => $out:ident$(($t3:ty))?),* $(,)?  }, $($rest:tt)*) => {
         impl std::ops::$trait_name for Value {
             type Output = Result<Self, (Self, Self)>;
             fn $funcname(self, other: Self) -> Self::Output {
                 match (self, other) {
                     $((Self::$first(a), Self::$second(b)) => Ok(Value::$out((a $(as $t1)? $binop $($r)?b $(as $t2)?) $(as $t3)?)),)*
+                    $($rest)*
                     // $((Self::$second(a), Self::$second(b)) => Some(Value::$out(a $(as $t2)? $binop b $(as $t1)?)),)*
                     (a,b) => Err((a, b))
                 }
@@ -246,7 +247,12 @@ binop!(Add, add => {
     Bool(i64) + Integer() => Integer,
     Integer() + Bool(i64) => Integer,
     Str() + (&)Str() => Str,
-});
+},
+(Value::Array(a), Value::Array(b)) => {
+    a.borrow_mut().append(&mut b.borrow_mut());
+    Ok(Value::Array(a))
+}
+);
 
 binop!(Sub, sub => {
     Integer() - Integer() => Integer,
@@ -259,36 +265,36 @@ binop!(Sub, sub => {
     Bool(i64) - Bool(i64) => Integer,
     Bool(i64) - Integer() => Integer,
     Integer() - Bool(i64) => Integer,
-});
+},);
 
 binop!(BitAnd, bitand => {
     Integer() & Integer() => Integer,
     Bool(i64) & Bool(i64) => Integer,
-});
+},);
 
 binop!(BitOr, bitor => {
     Integer() | Integer() => Integer,
     Bool(i64) | Bool(i64) => Integer,
-});
+},);
 
 binop!(BitXor, bitxor => {
     Integer() ^ Integer() => Integer,
     Bool(i64) ^ Bool(i64) => Integer,
-});
+},);
 
 binop!(Shl, shl => {
     Integer() << Integer() => Integer,
-});
+},);
 
 binop!(Shr, shr => {
     Integer() >> Integer() => Integer,
-});
+},);
 
 binop!(Div, div => {
     Integer(f64) / Integer(f64) => Float,
     Integer(f64) / Float() => Float,
     Float() / Integer(f64) => Float,
-});
+},);
 
 binop!(Mul, mul => {
     Integer() * Integer() => Integer,
@@ -296,11 +302,11 @@ binop!(Mul, mul => {
     Integer() * Bool(i64) => Integer,
     Integer(f64) * Float() => Float,
     Float() * Integer(f64) => Float,
-});
+},);
 
 binop!(Rem, rem => {
     Integer() % Integer() => Integer,
-});
+},);
 
 unop!(Not, not => {
     ! Integer,

@@ -224,6 +224,12 @@ where
                 return Ok(rtn);
             }
             TokenKind::PlusEquals => BinOpKind::Add,
+            TokenKind::MinusEquals => BinOpKind::Subtract,
+            TokenKind::BitShiftLeftEquals => BinOpKind::BitShiftLeft,
+            TokenKind::BitShiftRightEquals => BinOpKind::BitShiftRight,
+            TokenKind::ForwardSlashEquals => BinOpKind::Divide,
+            TokenKind::DoubleForwardSlash => BinOpKind::IntegerDivide,
+            TokenKind::Mod => BinOpKind::Mod,
             _ => {
                 self.lexer.put_back(Ok(token));
                 return Ok(left);
