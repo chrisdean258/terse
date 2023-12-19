@@ -346,10 +346,22 @@ where
             TokenKind::ForwardSlash => BinOpKind::Divide,
             TokenKind::DoubleForwardSlash => BinOpKind::IntegerDivide,
             TokenKind::Mod => BinOpKind::Mod,
-        } => call
+        } => prefix
     );
 
-    fn call(&mut self, token: Token) -> ParseResult {
+    fn prefix(&mut self, token: Token) -> ParseResult {
+        match token.value {
+            TokenKind::Asterik => {
+                let token = self.must_next_token("expression")?;
+                self.postfix(token)
+            }
+            TokenKind::Increment => todo!(),
+            TokenKind::Decrement => todo!(),
+            _ => self.postfix(token),
+        }
+    }
+
+    fn postfix(&mut self, token: Token) -> ParseResult {
         let mut callable = self.literal_id_or_recurse(token)?;
         while let Some(token) = self.lexer.next() {
             let token = token?;
