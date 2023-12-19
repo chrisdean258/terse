@@ -47,13 +47,14 @@ impl Value {
 
     pub fn try_clone(&self) -> Option<Self> {
         match self {
+            Self::None => Some(Self::None),
             Self::Integer(i) => Some(Self::Integer(*i)),
             Self::Float(f) => Some(Self::Float(*f)),
             Self::Bool(b) => Some(Self::Bool(*b)),
             Self::Char(c) => Some(Self::Char(*c)),
-            Self::None => Some(Self::None),
             Self::Lambda(l) => Some(Self::Lambda(l.clone())),
             Self::ExternalFunc(e) => Some(Self::ExternalFunc(*e)),
+            Self::Array(a) => Some(Self::Array(a.clone())),
             _ => None,
         }
     }
