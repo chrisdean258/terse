@@ -1,7 +1,7 @@
 #![allow(clippy::needless_pass_by_value)]
 use crate::{
     expression::{
-        AssignmentKind, BinOpKind, DeclIds, DeclarationKind, FlatBinOpKind, LValueKind, RValueKind,
+        BinOpKind, DeclIds, DeclarationKind, FlatBinOpKind, LValueKind, RValueKind,
         ShortCircuitBinOpKind, UntypedExpr, UntypedExprKind, UntypedLValue,
     },
     lexer::LexError,
@@ -208,13 +208,28 @@ where
         };
         let token = token?;
         let op = match &token.value {
-            TokenKind::SingleEquals => AssignmentKind::Equals,
-            TokenKind::PlusEquals => AssignmentKind::PlusEquals,
+            TokenKind::SingleEquals => {
+                let left = match left.into_lval() {
+                    Ok(l) => l,
+                    Err(left) => return Err(ParseError::NotAnLValue(left)),
+                };
+                let Some(token) = self.lexer.next() else {
+                    return Err(ParseError::UnexpectedEOF("expression"));
+                };
+                let right = Box::new(self.expr(token?)?);
+                let rtn = UntypedExpr {
+                    span: left.span.to(&right.span),
+                    value: UntypedExprKind::RValue(RValueKind::Assignment { left, right }),
+                };
+                return Ok(rtn);
+            }
+            TokenKind::PlusEquals => BinOpKind::Add,
             _ => {
                 self.lexer.put_back(Ok(token));
                 return Ok(left);
             }
         };
+        let r = Box::new(left.clone());
         let left = match left.into_lval() {
             Ok(l) => l,
             Err(left) => return Err(ParseError::NotAnLValue(left)),
@@ -223,9 +238,16 @@ where
             return Err(ParseError::UnexpectedEOF("expression"));
         };
         let right = Box::new(self.expr(token?)?);
+        let span = left.span.to(&right.span);
         let rtn = UntypedExpr {
-            span: left.span.to(&right.span),
-            value: UntypedExprKind::RValue(RValueKind::Assignment { left, op, right }),
+            span: span.clone(),
+            value: UntypedExprKind::RValue(RValueKind::Assignment {
+                left,
+                right: Box::new(UntypedExpr {
+                    span,
+                    value: UntypedExprKind::RValue(RValueKind::BinOp { left: r, op, right }),
+                }),
+            }),
         };
         Ok(rtn)
     }

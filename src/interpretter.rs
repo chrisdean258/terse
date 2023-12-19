@@ -1,6 +1,6 @@
 use crate::{
     expression::{
-        AssignmentKind, BinOpKind, DeclIds, DeclarationKind, FlatBinOpKind, LValueKind, RValueKind,
+        BinOpKind, DeclIds, DeclarationKind, FlatBinOpKind, LValueKind, RValueKind,
         ShortCircuitBinOpKind, UntypedExpr, UntypedExprKind, UntypedLValue,
     },
     intrinsics::{intrinsics, Error as IntrinsicsError},
@@ -188,9 +188,7 @@ impl Interpretter {
                 RValueKind::ShortCircuitBinOp { left, op, right } => {
                     self.short_circuit_binop(&expr.span, left, *op, right)
                 }
-                RValueKind::Assignment { left, op, right } => {
-                    self.assignment(left, *op, right, &expr.span)
-                }
+                RValueKind::Assignment { left, right } => self.assignment(left, right, &expr.span),
                 RValueKind::For { item, items, body } => self.for_(item, items, body),
                 RValueKind::If {
                     condition,
@@ -363,18 +361,16 @@ impl Interpretter {
     fn assignment(
         &mut self,
         left: &UntypedLValue,
-        op: AssignmentKind,
         right: &UntypedExpr,
         span: &Span,
     ) -> InterpretterResult {
         let right = self.expr(right)?;
-        self.assignment_one(&left.value, op, right, span)
+        self.assignment_one(&left.value, right, span)
     }
 
     fn try_assignment(
         &mut self,
         left: &UntypedExpr,
-        op: AssignmentKind,
         right: Value,
         span: &Span,
     ) -> InterpretterResult {
@@ -382,14 +378,13 @@ impl Interpretter {
             UntypedExprKind::RValue(_) => {
                 Err(FlowControl::Error(Error::CannotAssign(span.clone())))
             }
-            UntypedExprKind::LValue(l) => self.assignment_one(l, op, right, span),
+            UntypedExprKind::LValue(l) => self.assignment_one(l, right, span),
         }
     }
 
     fn assignment_one(
         &mut self,
         left: &LValueKind,
-        op: AssignmentKind,
         right: Value,
         span: &Span,
     ) -> InterpretterResult {
@@ -418,7 +413,7 @@ impl Interpretter {
                     )));
                 }
                 for (l, r) in lvals.iter().zip(t.into_iter()) {
-                    self.try_assignment(l, op, r, span)?;
+                    self.try_assignment(l, r, span)?;
                 }
             }
 
@@ -431,7 +426,7 @@ impl Interpretter {
                     )));
                 }
                 for (l, r) in lvals.iter().zip(t.take().into_iter()) {
-                    self.try_assignment(l, op, r, span)?;
+                    self.try_assignment(l, r, span)?;
                 }
             }
 

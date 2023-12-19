@@ -4,13 +4,13 @@ use std::{
     rc::Rc,
 };
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct UntypedExpr {
     pub span: Span,
     pub value: UntypedExprKind,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct UntypedLValue {
     pub span: Span,
     pub value: LValueKind,
@@ -30,13 +30,13 @@ impl UntypedExpr {
 
 type SubExpr = Box<UntypedExpr>;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum UntypedExprKind {
     RValue(RValueKind),
     LValue(LValueKind),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum LValueKind {
     Variable(String),
     BracketExpr { left: SubExpr, subscript: SubExpr },
@@ -49,13 +49,13 @@ pub enum DeclarationKind {
     Var,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum DeclIds {
     One(String),
     Many(Vec<DeclIds>),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum RValueKind {
     Declaration {
         kind: DeclarationKind,
@@ -69,7 +69,6 @@ pub enum RValueKind {
     Bool(bool),
     Assignment {
         left: UntypedLValue,
-        op: AssignmentKind,
         right: SubExpr,
     },
     BinOp {
@@ -125,12 +124,6 @@ pub enum BinOpKind {
     BitwiseXor,
     BitShiftRight,
     BitShiftLeft,
-}
-
-#[derive(Clone, Debug, Copy, PartialEq, Eq)]
-pub enum AssignmentKind {
-    Equals,
-    PlusEquals,
 }
 
 #[derive(Clone, Debug, Copy, PartialEq, Eq)]
@@ -215,11 +208,7 @@ impl Display for RValueKind {
             Self::Char(c) => write!(f, "{c}"),
             Self::Bool(b) => write!(f, "{b}"),
             Self::BinOp { left, op, right } => write!(f, "({left} {op} {right})"),
-            Self::Assignment {
-                left,
-                op: _op,
-                right,
-            } => write!(f, "{left} = {right}"),
+            Self::Assignment { left, right } => write!(f, "{left} = {right}"),
             Self::ShortCircuitBinOp { left, op, right } => write!(f, "({left} {op} {right})"),
             Self::FlatBinOp { first, rest } => {
                 write!(f, "{first}")?;

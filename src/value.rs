@@ -207,15 +207,14 @@ impl PartialOrd for Value {
     }
 }
 
-macro_rules! op {
-
-    ($trait_name:ident, $funcname:ident => { $($first:ident($($t1:ty)?) $op:tt  $(($r:tt))?$second:ident($($t2:ty)?) => $out:ident$(($t3:ty))?),* $(,)?  }) => {
+macro_rules! binop {
+    ($trait_name:ident, $funcname:ident => { $($first:ident($($t1:ty)?) $binop:tt  $(($r:tt))?$second:ident($($t2:ty)?) => $out:ident$(($t3:ty))?),* $(,)?  }) => {
         impl std::ops::$trait_name for Value {
             type Output = Result<Self, (Self, Self)>;
             fn $funcname(self, other: Self) -> Self::Output {
                 match (self, other) {
-                    $((Self::$first(a), Self::$second(b)) => Ok(Value::$out((a $(as $t1)? $op $($r)?b $(as $t2)?) $(as $t3)?)),)*
-                    // $((Self::$second(a), Self::$second(b)) => Some(Value::$out(a $(as $t2)? $op b $(as $t1)?)),)*
+                    $((Self::$first(a), Self::$second(b)) => Ok(Value::$out((a $(as $t1)? $binop $($r)?b $(as $t2)?) $(as $t3)?)),)*
+                    // $((Self::$second(a), Self::$second(b)) => Some(Value::$out(a $(as $t2)? $binop b $(as $t1)?)),)*
                     (a,b) => Err((a, b))
                 }
             }
@@ -223,7 +222,21 @@ macro_rules! op {
     };
 }
 
-op!(Add, add => {
+macro_rules! unop {
+    ($trait_name:ident, $funcname:ident => { $($unop:tt $first:ident),* $(,)?  }) => {
+        impl std::ops::$trait_name for Value {
+            type Output = Result<Self, Self>;
+            fn $funcname(self) -> Self::Output {
+                match (self) {
+                    $(Self::$first(a) => Ok(Value::$first($unop a)),)*
+                    a => Err(a)
+                }
+            }
+        }
+    };
+}
+
+binop!(Add, add => {
     Integer() + Integer() => Integer,
     Integer(f64) + Float() => Float,
     Float() + Integer(f64) => Float,
@@ -235,7 +248,7 @@ op!(Add, add => {
     Str() + (&)Str() => Str,
 });
 
-op!(Sub, sub => {
+binop!(Sub, sub => {
     Integer() - Integer() => Integer,
     Integer(f64) - Float() => Float,
     Float() - Integer(f64) => Float,
@@ -248,36 +261,36 @@ op!(Sub, sub => {
     Integer() - Bool(i64) => Integer,
 });
 
-op!(BitAnd, bitand => {
+binop!(BitAnd, bitand => {
     Integer() & Integer() => Integer,
     Bool(i64) & Bool(i64) => Integer,
 });
 
-op!(BitOr, bitor => {
+binop!(BitOr, bitor => {
     Integer() | Integer() => Integer,
     Bool(i64) | Bool(i64) => Integer,
 });
 
-op!(BitXor, bitxor => {
+binop!(BitXor, bitxor => {
     Integer() ^ Integer() => Integer,
     Bool(i64) ^ Bool(i64) => Integer,
 });
 
-op!(Shl, shl => {
+binop!(Shl, shl => {
     Integer() << Integer() => Integer,
 });
 
-op!(Shr, shr => {
+binop!(Shr, shr => {
     Integer() >> Integer() => Integer,
 });
 
-op!(Div, div => {
+binop!(Div, div => {
     Integer(f64) / Integer(f64) => Float,
     Integer(f64) / Float() => Float,
     Float() / Integer(f64) => Float,
 });
 
-op!(Mul, mul => {
+binop!(Mul, mul => {
     Integer() * Integer() => Integer,
     Bool(i64) * Integer() => Integer,
     Integer() * Bool(i64) => Integer,
@@ -285,12 +298,19 @@ op!(Mul, mul => {
     Float() * Integer(f64) => Float,
 });
 
-op!(Rem, rem => {
+binop!(Rem, rem => {
     Integer() % Integer() => Integer,
+});
+
+unop!(Not, not => {
+    ! Integer,
+    ! Bool
+});
+
+unop!(Neg, neg => {
+    - Integer,
+    - Float
 });
 
 // Index
 // IndexMut
-// Neg
-// Not
-// Rem
