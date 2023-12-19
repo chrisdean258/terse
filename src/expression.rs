@@ -108,6 +108,7 @@ pub enum RValueKind {
     Lambda(Rc<UntypedExpr>),
     Array(Vec<UntypedExpr>),
     Break(Option<SubExpr>),
+    Continue,
 }
 
 #[derive(Clone, Debug, Copy, PartialEq, Eq)]
@@ -277,6 +278,9 @@ impl Display for RValueKind {
                     write!(f, " {subexpr}")?;
                 };
                 Ok(())
+            }
+            Self::Continue => {
+                write!(f, "continue")
             }
         }
     }

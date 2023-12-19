@@ -436,6 +436,7 @@ where
             TokenKind::If => self.if_(token)?,
             TokenKind::While => self.while_(token)?,
             TokenKind::Break => self.break_(token)?,
+            TokenKind::Continue => self.continue_(token)?,
             a => todo!("{}:{a:?}", token.span),
         })
     }
@@ -658,6 +659,13 @@ where
         Ok(UntypedExpr {
             span,
             value: UntypedExprKind::RValue(RValueKind::Break(subexpr)),
+        })
+    }
+
+    fn continue_(&mut self, token: Token) -> ParseResult {
+        Ok(UntypedExpr {
+            span: token.span,
+            value: UntypedExprKind::RValue(RValueKind::Continue),
         })
     }
 }

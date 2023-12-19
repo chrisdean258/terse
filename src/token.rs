@@ -80,6 +80,7 @@ pub enum Kind {
     Let,
     Var,
     Break,
+    Continue,
 }
 
 impl Display for Kind {
@@ -156,6 +157,7 @@ impl Display for Kind {
             Self::Let => write!(f, "let"),
             Self::Var => write!(f, "var"),
             Self::Break => write!(f, "break"),
+            Self::Continue => write!(f, "continue"),
         }
     }
 }

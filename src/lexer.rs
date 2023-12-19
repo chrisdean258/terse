@@ -343,6 +343,7 @@ impl Lexer {
                 "let" => TokenKind::Let,
                 "var" => TokenKind::Var,
                 "break" => TokenKind::Break,
+                "continue" => TokenKind::Continue,
                 _ => TokenKind::Identifier(id),
             },
         }

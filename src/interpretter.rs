@@ -69,6 +69,7 @@ pub struct ScopeTable {
 enum FlowControl {
     Error(Error),
     Break(Value),
+    Continue,
 }
 
 impl From<Error> for FlowControl {
@@ -165,6 +166,7 @@ impl Interpretter {
             val = match self.expr(expr) {
                 Err(FlowControl::Error(ie)) => Err(ie)?,
                 Err(FlowControl::Break(_e)) => Err(Error::IllegalFlowControl)?,
+                Err(FlowControl::Continue) => Err(Error::IllegalFlowControl)?,
                 Ok(v) => v,
             }
         }
@@ -206,6 +208,7 @@ impl Interpretter {
                     self.declaration(*kind, names, v, &expr.span)
                 }
                 RValueKind::Break(expr) => self.break_(expr.as_ref().map(AsRef::as_ref)),
+                RValueKind::Continue => Err(FlowControl::Continue),
             },
             UntypedExprKind::LValue(l) => self.lval(l, &expr.span),
         }
@@ -532,6 +535,7 @@ impl Interpretter {
             match condition_val {
                 Value::Bool(true) => match self.expr(body) {
                     Err(FlowControl::Break(v)) => return Ok(v),
+                    Err(FlowControl::Continue) => {}
                     a => {
                         a?;
                     }
