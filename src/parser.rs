@@ -187,6 +187,15 @@ where
         Ok(t?)
     }
 
+    fn must<T>(
+        &mut self,
+        c: fn(&mut Self, Token) -> Result<T, ParseError>,
+        context: &'static str,
+    ) -> Result<T, ParseError> {
+        let token = self.must_next_token(context)?;
+        c(self, token)
+    }
+
     fn expr(&mut self, token: Token) -> ParseResult {
         match token.value {
             TokenKind::Let | TokenKind::Var => self.declaration(token),
@@ -351,12 +360,27 @@ where
 
     fn prefix(&mut self, token: Token) -> ParseResult {
         match token.value {
-            TokenKind::Asterik => {
-                let token = self.must_next_token("expression")?;
-                self.postfix(token)
-            }
-            TokenKind::Increment => todo!(),
-            TokenKind::Decrement => todo!(),
+            TokenKind::Asterik => self.must(Self::postfix, "expression"),
+            // TokenKind::Increment => {
+            // let item = match .into_lval() {
+            // Ok(l) => l,
+            // Err(left) => return Err(ParseError::NotAnLValue(left)),
+            // };
+            // UntypedExpr {
+            // span: item.span.to(&token.span),
+            // value: UntypedExprKind::RValue(RValueKind::PostIncr(item)),
+            // }
+            // }
+            // TokenKind::Decrement => {
+            // let item = match callable.into_lval() {
+            // Ok(l) => l,
+            // Err(left) => return Err(ParseError::NotAnLValue(left)),
+            // };
+            // UntypedExpr {
+            // span: item.span.to(&token.span),
+            // value: UntypedExprKind::RValue(RValueKind::PostDecr(item)),
+            // }
+            // }
             _ => self.postfix(token),
         }
     }
@@ -377,8 +401,7 @@ where
                     }
                 }
                 TokenKind::OpenBracket => {
-                    let token = self.must_next_token("expression in brackets")?;
-                    let subscript = Box::new(self.expr(token)?);
+                    let subscript = Box::new(self.must(Self::expr, "expression in brackets")?);
                     let token = self.must_next_token("close bracket")?;
                     let Token {
                         span: _,
@@ -397,6 +420,26 @@ where
                             left: Box::new(callable),
                             subscript,
                         }),
+                    }
+                }
+                TokenKind::Increment => {
+                    let item = match callable.into_lval() {
+                        Ok(l) => l,
+                        Err(left) => return Err(ParseError::NotAnLValue(left)),
+                    };
+                    UntypedExpr {
+                        span: item.span.to(&token.span),
+                        value: UntypedExprKind::RValue(RValueKind::PostIncr(item)),
+                    }
+                }
+                TokenKind::Decrement => {
+                    let item = match callable.into_lval() {
+                        Ok(l) => l,
+                        Err(left) => return Err(ParseError::NotAnLValue(left)),
+                    };
+                    UntypedExpr {
+                        span: item.span.to(&token.span),
+                        value: UntypedExprKind::RValue(RValueKind::PostDecr(item)),
                     }
                 }
                 _ => {
@@ -421,8 +464,7 @@ where
             }
             TokenKind::LambdaArg(_) => self.lambda(token)?,
             TokenKind::BackSlash => {
-                let token = self.must_next_token("lambda expression")?;
-                let expr = self.lambda(token)?;
+                let expr = self.must(Self::lambda, "lambda expression")?;
                 UntypedExpr {
                     span: expr.span.clone(),
                     value: UntypedExprKind::RValue(RValueKind::Lambda(Rc::new(expr))),
@@ -445,13 +487,12 @@ where
         todo!("{:?}", token)
     }
 
-    fn paren(&mut self, open_paren_token: Token) -> ParseResult {
-        let token = self.must_next_token("expression")?;
-        let mut expr = self.expr(token)?;
+    fn paren(&mut self, _open_paren_token: Token) -> ParseResult {
+        let expr = self.must(Self::expr, "expression")?;
         let end_paren_token = self.must_next_token("`)`")?;
         let Token {
-            span,
             value: TokenKind::CloseParen,
+            ..
         } = end_paren_token
         else {
             return Err(ParseError::UnexpectedToken {
@@ -459,7 +500,6 @@ where
                 found: end_paren_token,
             });
         };
-        expr.span = open_paren_token.span.to(&span);
         Ok(expr)
     }
 
@@ -519,8 +559,7 @@ where
     }
 
     fn for_(&mut self, for_token: Token) -> ParseResult {
-        let token = self.must_next_token("lvalue in for")?;
-        let item = self.lval(token)?;
+        let item = self.must(Self::lval, "lval in for")?;
         let in_token = self.must_next_token("`in`")?;
         let TokenKind::In = in_token.value else {
             return Err(ParseError::UnexpectedToken {
@@ -528,10 +567,8 @@ where
                 found: in_token,
             });
         };
-        let token = self.must_next_token("expresion items of for loop")?;
-        let items = Box::new(self.expr(token)?);
-        let token = self.must_next_token("expresion body of for loop")?;
-        let body = Box::new(self.expr(token)?);
+        let items = Box::new(self.must(Self::expr, "expresion items of for loop")?);
+        let body = Box::new(self.must(Self::expr, "expresion body of for loop")?);
         Ok(UntypedExpr {
             span: for_token.span.to(&body.span),
             value: UntypedExprKind::RValue(RValueKind::For { item, items, body }),
@@ -539,10 +576,8 @@ where
     }
 
     fn if_(&mut self, if_token: Token) -> ParseResult {
-        let token = self.must_next_token("condition in if")?;
-        let condition = Box::new(self.expr(token)?);
-        let token = self.must_next_token("body in if")?;
-        let body = Box::new(self.expr(token)?);
+        let condition = Box::new(self.must(Self::expr, "condition in if")?);
+        let body = Box::new(self.must(Self::expr, "body in if")?);
         // This does not bring joy
         let else_ = if let Some(token) = self.lexer.next() {
             let token = token?;
@@ -567,10 +602,8 @@ where
     }
 
     fn while_(&mut self, while_token: Token) -> ParseResult {
-        let token = self.must_next_token("condition in while")?;
-        let condition = Box::new(self.expr(token)?);
-        let token = self.must_next_token("body in while")?;
-        let body = Box::new(self.expr(token)?);
+        let condition = Box::new(self.must(Self::expr, "condition in while")?);
+        let body = Box::new(self.must(Self::expr, "body in while")?);
         Ok(UntypedExpr {
             span: while_token.span.to(&body.span),
             value: UntypedExprKind::RValue(RValueKind::While { condition, body }),
@@ -585,16 +618,6 @@ where
         };
         let token = self.must_next_token("variable name")?;
         let names = self.ids(token, false)?;
-        // let Token {
-        // span: _,
-        // value: TokenKind::Identifier(name),
-        // } = token
-        // else {
-        // return Err(ParseError::UnexpectedToken {
-        // expected: vec![TokenKind::Identifier("".into())],
-        // found: token,
-        // });
-        // };
         let token = self.must_next_token("`=`")?;
         let Token {
             span: _,
@@ -606,8 +629,7 @@ where
                 found: token,
             });
         };
-        let token = self.must_next_token("expression")?;
-        let value = Box::new(self.expr(token)?);
+        let value = Box::new(self.must(Self::expr, "expression")?);
         Ok(UntypedExpr {
             span: decl_type.span.to(&value.span),
             value: UntypedExprKind::RValue(RValueKind::Declaration { kind, names, value }),

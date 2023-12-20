@@ -54,7 +54,13 @@ impl Value {
             Self::Char(c) => Some(Self::Char(*c)),
             Self::Lambda(l) => Some(Self::Lambda(l.clone())),
             Self::ExternalFunc(e) => Some(Self::ExternalFunc(*e)),
-            Self::Array(a) => Some(Self::Array(a.clone())),
+            Self::Tuple(t) => {
+                let mut v = Vec::new();
+                for item in t {
+                    v.push(item.try_clone()?);
+                }
+                Some(Self::Tuple(v))
+            }
             _ => None,
         }
     }

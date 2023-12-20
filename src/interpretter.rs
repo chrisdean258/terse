@@ -42,8 +42,8 @@ pub enum Error {
     NotEnoughArguments(Span, usize, usize),
     #[error("{0}: Tried to index `{1}` with `{2}` but `{1}` is only of length {3}")]
     IndexOutOfBound(Span, Value, Value, usize),
-    #[error("{0}: Cannot index {1}")]
-    CannotIndex(Span, Value),
+    #[error("{0}: Cannot index {1} with {2}")]
+    CannotIndex(Span, Value, Value),
     #[error("{0}: Cannot assign `{2}` into {1} values")]
     AssignmentLengthMismatch(Span, usize, Value),
     //TODO: make this error message better
@@ -209,6 +209,10 @@ impl Interpretter {
                 }
                 RValueKind::Break(expr) => self.break_(expr.as_ref().map(AsRef::as_ref)),
                 RValueKind::Continue => Err(FlowControl::Continue),
+                RValueKind::PreIncr(e) => self.preincr(e),
+                RValueKind::PreDecr(e) => self.predecr(e),
+                RValueKind::PostIncr(e) => self.postincr(e),
+                RValueKind::PostDecr(e) => self.postdecr(e),
             },
             UntypedExprKind::LValue(l) => self.lval(l, &expr.span),
         }
@@ -675,7 +679,11 @@ impl Interpretter {
                     Ok(a[b.map_err(Error::BadConversion)?].clone_or_take())
                 }
             }
-            (_, _) => Err(FlowControl::Error(Error::CannotIndex(span.clone(), left))),
+            (_, _) => Err(FlowControl::Error(Error::CannotIndex(
+                span.clone(),
+                left,
+                subscript,
+            ))),
         }
     }
 
@@ -729,5 +737,70 @@ impl Interpretter {
         } else {
             Value::None
         }))
+    }
+
+    fn predecr(&mut self, subexpr: &UntypedLValue) -> InterpretterResult {
+        let value = self.lval(&subexpr.value, &subexpr.span)?;
+        let new_val = (value - Value::Integer(1)).map_err(|(a, b)| {
+            FlowControl::Error(Error::BinOp(
+                subexpr.span.clone(),
+                a,
+                BinOpKind::Subtract,
+                b,
+            ))
+        })?;
+        let Some(cln) = new_val.try_clone() else {
+            unreachable!("We were able to subtract Value::Integer(1) to something else but what was returned was not clonable")
+        };
+        self.assignment_one(&subexpr.value, cln, &subexpr.span)?;
+        Ok(new_val)
+    }
+    fn preincr(&mut self, subexpr: &UntypedLValue) -> InterpretterResult {
+        let value = self.lval(&subexpr.value, &subexpr.span)?;
+        let new_val = (value + Value::Integer(1)).map_err(|(a, b)| {
+            FlowControl::Error(Error::BinOp(subexpr.span.clone(), a, BinOpKind::Add, b))
+        })?;
+        let Some(cln) = new_val.try_clone() else {
+            unreachable!("We were able to subtract Value::Integer(1) to something else but what was returned was not clonable")
+        };
+        self.assignment_one(&subexpr.value, cln, &subexpr.span)?;
+        Ok(new_val)
+    }
+    fn postdecr(&mut self, subexpr: &UntypedLValue) -> InterpretterResult {
+        let value = self.lval(&subexpr.value, &subexpr.span)?;
+        let Some(cln) = value.try_clone() else {
+            return Err(FlowControl::Error(Error::BinOp(
+                subexpr.span.clone(),
+                value,
+                BinOpKind::Subtract,
+                Value::Integer(1),
+            )));
+        };
+        let new_val = (value - Value::Integer(1)).map_err(|(a, b)| {
+            FlowControl::Error(Error::BinOp(
+                subexpr.span.clone(),
+                a,
+                BinOpKind::Subtract,
+                b,
+            ))
+        })?;
+        self.assignment_one(&subexpr.value, new_val, &subexpr.span)?;
+        Ok(cln)
+    }
+    fn postincr(&mut self, subexpr: &UntypedLValue) -> InterpretterResult {
+        let value = self.lval(&subexpr.value, &subexpr.span)?;
+        let Some(cln) = value.try_clone() else {
+            return Err(FlowControl::Error(Error::BinOp(
+                subexpr.span.clone(),
+                value,
+                BinOpKind::Add,
+                Value::Integer(1),
+            )));
+        };
+        let new_val = (value + Value::Integer(1)).map_err(|(a, b)| {
+            FlowControl::Error(Error::BinOp(subexpr.span.clone(), a, BinOpKind::Add, b))
+        })?;
+        self.assignment_one(&subexpr.value, new_val, &subexpr.span)?;
+        Ok(cln)
     }
 }

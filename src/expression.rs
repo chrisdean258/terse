@@ -103,6 +103,10 @@ pub enum RValueKind {
         callable: SubExpr,
         args: Vec<UntypedExpr>,
     },
+    PreIncr(UntypedLValue),
+    PreDecr(UntypedLValue),
+    PostIncr(UntypedLValue),
+    PostDecr(UntypedLValue),
     Block(Vec<UntypedExpr>),
     LambdaArg(usize),
     Lambda(Rc<UntypedExpr>),
@@ -282,6 +286,10 @@ impl Display for RValueKind {
             Self::Continue => {
                 write!(f, "continue")
             }
+            Self::PreIncr(e) => write!(f, "++{e}"),
+            Self::PreDecr(e) => write!(f, "--{e}"),
+            Self::PostIncr(e) => write!(f, "{e}++"),
+            Self::PostDecr(e) => write!(f, "{e}--"),
         }
     }
 }
