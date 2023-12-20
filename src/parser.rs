@@ -361,26 +361,20 @@ where
     fn prefix(&mut self, token: Token) -> ParseResult {
         match token.value {
             TokenKind::Asterik => self.must(Self::postfix, "expression"),
-            // TokenKind::Increment => {
-            // let item = match .into_lval() {
-            // Ok(l) => l,
-            // Err(left) => return Err(ParseError::NotAnLValue(left)),
-            // };
-            // UntypedExpr {
-            // span: item.span.to(&token.span),
-            // value: UntypedExprKind::RValue(RValueKind::PostIncr(item)),
-            // }
-            // }
-            // TokenKind::Decrement => {
-            // let item = match callable.into_lval() {
-            // Ok(l) => l,
-            // Err(left) => return Err(ParseError::NotAnLValue(left)),
-            // };
-            // UntypedExpr {
-            // span: item.span.to(&token.span),
-            // value: UntypedExprKind::RValue(RValueKind::PostDecr(item)),
-            // }
-            // }
+            TokenKind::Increment => {
+                let item = self.must(Self::lval, "expression")?;
+                Ok(UntypedExpr {
+                    span: item.span.to(&token.span),
+                    value: UntypedExprKind::RValue(RValueKind::PreIncr(item)),
+                })
+            }
+            TokenKind::Decrement => {
+                let item = self.must(Self::lval, "expression")?;
+                Ok(UntypedExpr {
+                    span: item.span.to(&token.span),
+                    value: UntypedExprKind::RValue(RValueKind::PreDecr(item)),
+                })
+            }
             _ => self.postfix(token),
         }
     }
@@ -684,7 +678,9 @@ where
         })
     }
 
-    fn continue_(&mut self, token: Token) -> ParseResult {
+    #[allow(clippy::unnecessary_wraps)]
+    fn continue_(&mut self, token: Token) -> ParseResult {;
+        let _ = self;
         Ok(UntypedExpr {
             span: token.span,
             value: UntypedExprKind::RValue(RValueKind::Continue),

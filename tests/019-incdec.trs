@@ -1,5 +1,10 @@
 var a = 1
-a++
-print(a)
-a--
-print(a)
+print(a++)
+print(a++)
+print(a--) 
+print(a--) 
+print(++a)
+print(++a)
+print(--a)
+print(--a)
+
