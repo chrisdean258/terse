@@ -679,7 +679,7 @@ where
     }
 
     #[allow(clippy::unnecessary_wraps)]
-    fn continue_(&mut self, token: Token) -> ParseResult {;
+    fn continue_(&mut self, token: Token) -> ParseResult {
         let _ = self;
         Ok(UntypedExpr {
             span: token.span,
