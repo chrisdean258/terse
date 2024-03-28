@@ -267,6 +267,16 @@ where
         Ok(rtn)
     }
 
+    fn lambda(&mut self, token: Token) -> ParseResult {
+        let save = std::mem::replace(&mut self.in_lambda, true);
+        let expr = self.boolean_or(token)?;
+        self.in_lambda = save;
+        Ok(UntypedExpr {
+            span: expr.span.clone(),
+            value: UntypedExprKind::RValue(RValueKind::Lambda(Rc::new(expr))),
+        })
+    }
+
     fn comma(&mut self, token: Token) -> ParseResult {
         let mut expr = self.pipe(token)?;
         let mut exprs = Vec::new();
@@ -302,7 +312,7 @@ where
         })
     }
 
-    fn under_comma(&mut self, token: Token) -> ParseResult {
+    fn binop(&mut self, token: Token) -> ParseResult {
         self.pipe(token)
     }
 
@@ -310,20 +320,7 @@ where
         pipe #short_circuit {
             TokenKind::PipeArrow => ShortCircuitBinOpKind::Pipe,
             TokenKind::SkinnyArrow => ShortCircuitBinOpKind::InvertedCall,
-        } => boolean_or
-    );
-
-    fn lambda(&mut self, token: Token) -> ParseResult {
-        let save = std::mem::replace(&mut self.in_lambda, true);
-        let expr = self.boolean_or(token)?;
-        self.in_lambda = save;
-        Ok(UntypedExpr {
-            span: expr.span.clone(),
-            value: UntypedExprKind::RValue(RValueKind::Lambda(Rc::new(expr))),
-        })
-    }
-
-    binops!(
+        } =>
         boolean_or #short_circuit { TokenKind::DoublePipe => ShortCircuitBinOpKind::BoolOr, } =>
         boolean_xor { TokenKind::DoubleHat => BinOpKind::BoolXor, } =>
         boolean_and #short_circuit { TokenKind::DoubleAmpersand => ShortCircuitBinOpKind::BoolAnd, } =>
@@ -335,7 +332,8 @@ where
         comparision #flatten {
             TokenKind::GreaterThanOrEqual => FlatBinOpKind::GreaterThanOrEqual,
             TokenKind::GreaterThan => FlatBinOpKind::GreaterThan,
-            TokenKind::LessThanOrEqual => FlatBinOpKind::LessThanOrEqual, TokenKind::LessThan => FlatBinOpKind::LessThan,
+            TokenKind::LessThanOrEqual => FlatBinOpKind::LessThanOrEqual,
+            TokenKind::LessThan => FlatBinOpKind::LessThan,
             TokenKind::DoubleEquals => FlatBinOpKind::CmpEquals,
             TokenKind::NotEqual => FlatBinOpKind::CmpNotEquals,
         } =>
@@ -373,6 +371,13 @@ where
                 Ok(UntypedExpr {
                     span: item.span.to(&token.span),
                     value: UntypedExprKind::RValue(RValueKind::PreDecr(item)),
+                })
+            }
+            TokenKind::Minus => {
+                let item = self.must(Self::postfix, "expression")?;
+                Ok(UntypedExpr {
+                    span: token.span.to(&item.span),
+                    value: UntypedExprKind::RValue(RValueKind::Negate(Box::new(item))),
                 })
             }
             _ => self.postfix(token),
@@ -499,32 +504,37 @@ where
 
     fn cse(
         &mut self,
-        token: Token,
+        opener: Token,
         end: TokenKind,
     ) -> Result<(Vec<UntypedExpr>, Span), ParseError> {
         let mut items = Vec::new();
-        let mut need_comma = false;
+
+        let mut token = self.must_next_token("expression or closing")?; // TODO update this message
+        if end == token.value {
+            return Ok((items, opener.span.to(&token.span)));
+        }
         let span = loop {
-            let mut token = self.must_next_token("close parens or comma")?; // TODO update this message
+            items.push(self.binop(token)?);
+            token = self.must_next_token("comma or closing")?; // TODO update this message
             if end == token.value {
                 break token.span;
             }
-            match (&token.value, need_comma) {
-                (TokenKind::Comma, true) => {
+            match &token.value {
+                TokenKind::Comma => {
                     token = self.must_next_token("expr")?;
                 }
-                (_, false) => {}
-                (_, true) => {
+                _ => {
                     return Err(ParseError::UnexpectedToken {
-                        expected: vec![TokenKind::CloseParen],
+                        expected: vec![end],
                         found: token,
                     })
                 }
             }
-            items.push(self.under_comma(token)?);
-            need_comma = true;
+            if end == token.value {
+                break token.span;
+            }
         };
-        Ok((items, token.span.to(&span)))
+        Ok((items, opener.span.to(&span)))
     }
 
     fn array(&mut self, open_bracket_token: Token) -> ParseResult {

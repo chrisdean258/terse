@@ -11,6 +11,8 @@ pub enum Error {
     TypeError(&'static str, &'static str, Value),
     #[error("{0}: expected {1} argument(s) given {2}")]
     ArgumentCount(&'static str, usize, usize),
+    #[error("{0}: cannot take the length of `{1}`")]
+    CannotTakeLength(&'static str, Value),
 }
 
 type IntrinsicsResult = Result<Value, Error>;
@@ -29,6 +31,7 @@ pub fn intrinsics() -> HashMap<String, Value> {
     vars.insert("join".into(), Value::ExternalFunc(join_str));
     vars.insert("collect".into(), Value::ExternalFunc(collect));
     vars.insert("push".into(), Value::ExternalFunc(push));
+    vars.insert("len".into(), Value::ExternalFunc(len));
     vars
 }
 
@@ -124,4 +127,14 @@ fn str_replace(_intp: &mut Interpretter, ipt: &mut [Value]) -> IntrinsicsResult 
     let (haystack, needle, replacement) =
         get_args!(ipt, "replace", { Str => String }, { Str => String }, { Str => String })?;
     Ok(Value::Str(haystack.replace(&needle, &replacement)))
+}
+
+fn len(_intp: &mut Interpretter, ipt: &mut [Value]) -> IntrinsicsResult {
+    expect_args(ipt, 1, "len")?;
+    match &ipt[0] {
+        Value::Array(a) => Ok(Value::Integer(a.borrow().len() as i64)),
+        Value::Tuple(a) => Ok(Value::Integer(a.len() as i64)),
+        Value::Str(a) => Ok(Value::Integer(a.len() as i64)),
+        _ => Err(Error::CannotTakeLength("len", ipt[0].clone_or_take())),
+    }
 }

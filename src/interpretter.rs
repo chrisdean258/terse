@@ -42,7 +42,7 @@ pub enum Error {
     NotEnoughArguments(Span, usize, usize),
     #[error("{0}: Tried to index `{1}` with `{2}` but `{1}` is only of length {3}")]
     IndexOutOfBound(Span, Value, Value, usize),
-    #[error("{0}: Cannot index {1} with {2}")]
+    #[error("{0}: Cannot index `{1}` with `{2}`")]
     CannotIndex(Span, Value, Value),
     #[error("{0}: Cannot assign `{2}` into {1} values")]
     AssignmentLengthMismatch(Span, usize, Value),
@@ -59,6 +59,8 @@ pub enum Error {
     VariableWasMoved(Span, String),
     #[error("Illegal flow control. Break or continue not in a loop")]
     IllegalFlowControl,
+    #[error("{0}: Cannot negate `{1}`")]
+    CannotNegate(Span, Value),
 }
 
 pub struct ScopeTable {
@@ -213,6 +215,7 @@ impl Interpretter {
                 RValueKind::PreDecr(e) => self.predecr(e),
                 RValueKind::PostIncr(e) => self.postincr(e),
                 RValueKind::PostDecr(e) => self.postdecr(e),
+                RValueKind::Negate(e) => self.negate(e.as_ref()),
             },
             UntypedExprKind::LValue(l) => self.lval(l, &expr.span),
         }
@@ -802,5 +805,10 @@ impl Interpretter {
         })?;
         self.assignment_one(&subexpr.value, new_val, &subexpr.span)?;
         Ok(cln)
+    }
+
+    fn negate(&mut self, subexpr: &UntypedExpr) -> InterpretterResult {
+        (-self.expr(subexpr)?)
+            .map_err(|e| FlowControl::Error(Error::CannotNegate(subexpr.span.clone(), e)))
     }
 }

@@ -107,6 +107,7 @@ pub enum RValueKind {
     PreDecr(UntypedLValue),
     PostIncr(UntypedLValue),
     PostDecr(UntypedLValue),
+    Negate(SubExpr),
     Block(Vec<UntypedExpr>),
     LambdaArg(usize),
     Lambda(Rc<UntypedExpr>),
@@ -129,6 +130,11 @@ pub enum BinOpKind {
     BitwiseXor,
     BitShiftRight,
     BitShiftLeft,
+}
+
+#[derive(Clone, Debug, Copy, PartialEq, Eq)]
+pub enum UnOpKind {
+    Negate,
 }
 
 #[derive(Clone, Debug, Copy, PartialEq, Eq)]
@@ -290,6 +296,7 @@ impl Display for RValueKind {
             Self::PreDecr(e) => write!(f, "--{e}"),
             Self::PostIncr(e) => write!(f, "{e}++"),
             Self::PostDecr(e) => write!(f, "{e}--"),
+            Self::Negate(e) => write!(f, "-{e}"),
         }
     }
 }

@@ -1,3 +1,4 @@
-a = "Hello, world"
-b = len(a)
-while(b-- > 0) print(a[b])
+let a = "Hello world"
+print(len(a))
+let a = "Hello world"
+print(a->len())
