@@ -1,6 +1,6 @@
 use crate::{
     expression::{
-        BinOpKind, DeclIds, DeclarationKind, FlatBinOpKind, LValueKind, RValueKind,
+        BinOpKind, DeclarationKind, FlatBinOpKind, LValueKind, Pattern, RValueKind,
         ShortCircuitBinOpKind, UntypedExpr, UntypedExprKind, UntypedLValue,
     },
     intrinsics::{intrinsics, Error as IntrinsicsError},
@@ -192,7 +192,7 @@ impl Interpretter {
                 RValueKind::ShortCircuitBinOp { left, op, right } => {
                     self.short_circuit_binop(&expr.span, left, *op, right)
                 }
-                RValueKind::Assignment { left, right } => self.assignment(left, right, &expr.span),
+                RValueKind::Assignment { left, right } => self.assign_expr(left, right, &expr.span),
                 RValueKind::For { item, items, body } => self.for_(item, items, body),
                 RValueKind::If {
                     condition,
@@ -368,36 +368,37 @@ impl Interpretter {
         Ok(Value::Bool(result))
     }
 
-    fn assignment(
+    fn assign_expr(
         &mut self,
         left: &UntypedLValue,
         right: &UntypedExpr,
         span: &Span,
     ) -> InterpretterResult {
         let right = self.expr(right)?;
-        self.assignment_one(&left.value, right, span)
+        self.assign_value(&left.value, right, span)
     }
 
-    fn try_assignment(
+    fn try_assign_value(
         &mut self,
         left: &UntypedExpr,
         right: Value,
         span: &Span,
     ) -> InterpretterResult {
         match &left.value {
+            // TODO: Maybe we can do a more general pattern matching here
+            // Something like `if a, 2, 3 = 1, 2, 3 { print (a) }` prints 1
+            // But we might have to process when assignments should be errors or should be booleans
+            // Although maybe all assignments return booleans. the possibilities are endless
+            // this might also work for `if let a: int = null` type construction
+            // But maybe this is more appropriate for a new operator like `<-`
             UntypedExprKind::RValue(_) => {
                 Err(FlowControl::Error(Error::CannotAssign(span.clone())))
             }
-            UntypedExprKind::LValue(l) => self.assignment_one(l, right, span),
+            UntypedExprKind::LValue(l) => self.assign_value(l, right, span),
         }
     }
 
-    fn assignment_one(
-        &mut self,
-        left: &LValueKind,
-        right: Value,
-        span: &Span,
-    ) -> InterpretterResult {
+    fn assign_value(&mut self, left: &LValueKind, right: Value, span: &Span) -> InterpretterResult {
         match (left, right) {
             (LValueKind::Variable(ref s), right) => match self.scopes.get_mut(s) {
                 Ok(v) => *v = right,
@@ -423,7 +424,7 @@ impl Interpretter {
                     )));
                 }
                 for (l, r) in lvals.iter().zip(t.into_iter()) {
-                    self.try_assignment(l, r, span)?;
+                    self.try_assign_value(l, r, span)?;
                 }
             }
 
@@ -436,7 +437,7 @@ impl Interpretter {
                     )));
                 }
                 for (l, r) in lvals.iter().zip(t.take().into_iter()) {
-                    self.try_assignment(l, r, span)?;
+                    self.try_assign_value(l, r, span)?;
                 }
             }
 
@@ -705,13 +706,13 @@ impl Interpretter {
     fn declaration(
         &mut self,
         kind: DeclarationKind,
-        names: &DeclIds,
+        names: &Pattern,
         value: Value,
         span: &Span,
     ) -> InterpretterResult {
         match names {
-            DeclIds::One(n) => self.scopes.insert(n.clone(), value, kind),
-            DeclIds::Many(ns) => match value {
+            Pattern::One(n) => self.scopes.insert(n.clone(), value, kind),
+            Pattern::Many(ns) => match value {
                 Value::Tuple(a) => {
                     for (name, value) in ns.iter().zip(a) {
                         self.declaration(kind, name, value, span)?;
@@ -755,7 +756,7 @@ impl Interpretter {
         let Some(cln) = new_val.try_clone() else {
             unreachable!("We were able to subtract Value::Integer(1) to something else but what was returned was not clonable")
         };
-        self.assignment_one(&subexpr.value, cln, &subexpr.span)?;
+        self.assign_value(&subexpr.value, cln, &subexpr.span)?;
         Ok(new_val)
     }
     fn preincr(&mut self, subexpr: &UntypedLValue) -> InterpretterResult {
@@ -766,7 +767,7 @@ impl Interpretter {
         let Some(cln) = new_val.try_clone() else {
             unreachable!("We were able to subtract Value::Integer(1) to something else but what was returned was not clonable")
         };
-        self.assignment_one(&subexpr.value, cln, &subexpr.span)?;
+        self.assign_value(&subexpr.value, cln, &subexpr.span)?;
         Ok(new_val)
     }
     fn postdecr(&mut self, subexpr: &UntypedLValue) -> InterpretterResult {
@@ -787,7 +788,7 @@ impl Interpretter {
                 b,
             ))
         })?;
-        self.assignment_one(&subexpr.value, new_val, &subexpr.span)?;
+        self.assign_value(&subexpr.value, new_val, &subexpr.span)?;
         Ok(cln)
     }
     fn postincr(&mut self, subexpr: &UntypedLValue) -> InterpretterResult {
@@ -803,7 +804,7 @@ impl Interpretter {
         let new_val = (value + Value::Integer(1)).map_err(|(a, b)| {
             FlowControl::Error(Error::BinOp(subexpr.span.clone(), a, BinOpKind::Add, b))
         })?;
-        self.assignment_one(&subexpr.value, new_val, &subexpr.span)?;
+        self.assign_value(&subexpr.value, new_val, &subexpr.span)?;
         Ok(cln)
     }
 

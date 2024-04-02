@@ -1,7 +1,7 @@
 #![allow(clippy::needless_pass_by_value)]
 use crate::{
     expression::{
-        BinOpKind, DeclIds, DeclarationKind, FlatBinOpKind, LValueKind, RValueKind,
+        BinOpKind, DeclarationKind, FlatBinOpKind, LValueKind, Pattern, RValueKind,
         ShortCircuitBinOpKind, UntypedExpr, UntypedExprKind, UntypedLValue,
     },
     lexer::LexError,
@@ -637,14 +637,14 @@ where
         })
     }
 
-    fn ids(&mut self, token: Token, recursed: bool) -> Result<DeclIds, Error> {
+    fn ids(&mut self, token: Token, recursed: bool) -> Result<Pattern, Error> {
         let mut ids = Vec::new();
         let mut id;
         let mut force_tuple = false;
         self.lexer.put_back(Ok(token));
         loop {
             id = expect!(self => token {
-                TokenKind::Identifier(s) => DeclIds::One(s),
+                TokenKind::Identifier(s) => Pattern::One(s),
                 TokenKind::OpenParen => {
                     let token = self.must_next_token("open paren or identifier")?;
                     self.ids(token, true)?
@@ -666,7 +666,7 @@ where
             Ok(id)
         } else {
             ids.push(id);
-            Ok(DeclIds::Many(ids))
+            Ok(Pattern::Many(ids))
         }
     }
 

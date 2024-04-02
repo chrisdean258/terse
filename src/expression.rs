@@ -50,16 +50,16 @@ pub enum DeclarationKind {
 }
 
 #[derive(Debug, Clone)]
-pub enum DeclIds {
+pub enum Pattern {
     One(String),
-    Many(Vec<DeclIds>),
+    Many(Vec<Pattern>),
 }
 
 #[derive(Debug, Clone)]
 pub enum RValueKind {
     Declaration {
         kind: DeclarationKind,
-        names: DeclIds,
+        names: Pattern,
         value: SubExpr,
     },
     Integer(i64),
@@ -342,7 +342,7 @@ impl Display for DeclarationKind {
     }
 }
 
-impl Display for DeclIds {
+impl Display for Pattern {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
         match self {
             Self::One(s) => write!(f, "{s}"),
