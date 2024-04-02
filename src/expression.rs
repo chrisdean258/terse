@@ -133,11 +133,6 @@ pub enum BinOpKind {
 }
 
 #[derive(Clone, Debug, Copy, PartialEq, Eq)]
-pub enum UnOpKind {
-    Negate,
-}
-
-#[derive(Clone, Debug, Copy, PartialEq, Eq)]
 pub enum FlatBinOpKind {
     GreaterThan,
     GreaterThanOrEqual,

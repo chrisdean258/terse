@@ -13,7 +13,8 @@ use std::rc::Rc;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
-pub enum ParseError {
+pub enum Error {
+    #[allow(clippy::enum_variant_names)]
     #[error(transparent)]
     LexError(#[from] LexError),
     #[error("Expected `{0}` found EOF")]
@@ -46,7 +47,7 @@ struct Parser<I: Iterator<Item = Result<Token, LexError>>> {
     in_lambda: bool,
 }
 
-pub fn parse(lexer: impl Iterator<Item = Result<Token, LexError>>) -> Result<Ast, ParseError> {
+pub fn parse(lexer: impl Iterator<Item = Result<Token, LexError>>) -> Result<Ast, Error> {
     let mut tree = Ast { exprs: Vec::new() };
     let mut parser = Parser {
         lexer: put_back(lexer),
@@ -59,7 +60,7 @@ pub fn parse(lexer: impl Iterator<Item = Result<Token, LexError>>) -> Result<Ast
     Ok(tree)
 }
 
-type ParseResult = Result<UntypedExpr, ParseError>;
+type ParseResult = Result<UntypedExpr, Error>;
 
 macro_rules! binops {
     ($name:ident) => {};
@@ -79,7 +80,7 @@ macro_rules! binops {
                     }
                 };
                 let Some(tok2) = self.lexer.next() else {
-                    return Err(ParseError::UnexpectedEOF("expression"));
+                    return Err(Error::UnexpectedEOF("expression"));
                 };
 
                 let right = self.$next(tok2?)?;
@@ -115,7 +116,7 @@ macro_rules! binops {
                     }
                 };
                 let Some(token) = self.lexer.next() else {
-                    return Err(ParseError::UnexpectedEOF("expression"));
+                    return Err(Error::UnexpectedEOF("expression"));
                 };
                 let expr = self.$next(token?)?;
                 rest.push((op, Box::new(expr)));
@@ -155,7 +156,7 @@ where
 {
     fn parse_expr(&mut self) -> Option<ParseResult> {
         match self.lexer.next()? {
-            Err(e) => Some(Err(ParseError::LexError(e))),
+            Err(e) => Some(Err(Error::LexError(e))),
             Ok(t) => match t.value {
                 TokenKind::CloseParen | TokenKind::CloseBrace | TokenKind::CloseBracket => {
                     self.lexer.put_back(Ok(t));
@@ -180,18 +181,18 @@ where
         }
     }
 
-    fn must_next_token(&mut self, context: &'static str) -> Result<Token, ParseError> {
+    fn must_next_token(&mut self, context: &'static str) -> Result<Token, Error> {
         let Some(t) = self.lexer.next() else {
-            return Err(ParseError::UnexpectedEOF(context));
+            return Err(Error::UnexpectedEOF(context));
         };
         Ok(t?)
     }
 
     fn must<T>(
         &mut self,
-        c: fn(&mut Self, Token) -> Result<T, ParseError>,
+        c: fn(&mut Self, Token) -> Result<T, Error>,
         context: &'static str,
-    ) -> Result<T, ParseError> {
+    ) -> Result<T, Error> {
         let token = self.must_next_token(context)?;
         c(self, token)
     }
@@ -203,10 +204,10 @@ where
         }
     }
 
-    fn lval(&mut self, token: Token) -> Result<UntypedLValue, ParseError> {
+    fn lval(&mut self, token: Token) -> Result<UntypedLValue, Error> {
         match self.expr(token)?.into_lval() {
             Ok(l) => Ok(l),
-            Err(e) => Err(ParseError::NotAnLValue(e)),
+            Err(e) => Err(Error::NotAnLValue(e)),
         }
     }
 
@@ -220,10 +221,10 @@ where
             TokenKind::SingleEquals => {
                 let left = match left.into_lval() {
                     Ok(l) => l,
-                    Err(left) => return Err(ParseError::NotAnLValue(left)),
+                    Err(left) => return Err(Error::NotAnLValue(left)),
                 };
                 let Some(token) = self.lexer.next() else {
-                    return Err(ParseError::UnexpectedEOF("expression"));
+                    return Err(Error::UnexpectedEOF("expression"));
                 };
                 let right = Box::new(self.expr(token?)?);
                 let rtn = UntypedExpr {
@@ -247,10 +248,10 @@ where
         let r = Box::new(left.clone());
         let left = match left.into_lval() {
             Ok(l) => l,
-            Err(left) => return Err(ParseError::NotAnLValue(left)),
+            Err(left) => return Err(Error::NotAnLValue(left)),
         };
         let Some(token) = self.lexer.next() else {
-            return Err(ParseError::UnexpectedEOF("expression"));
+            return Err(Error::UnexpectedEOF("expression"));
         };
         let right = Box::new(self.expr(token?)?);
         let span = left.span.to(&right.span);
@@ -407,7 +408,7 @@ where
                         value: TokenKind::CloseBracket,
                     } = token
                     else {
-                        return Err(ParseError::UnexpectedToken {
+                        return Err(Error::UnexpectedToken {
                             expected: vec![TokenKind::CloseBracket],
                             found: token,
                         });
@@ -424,7 +425,7 @@ where
                 TokenKind::Increment => {
                     let item = match callable.into_lval() {
                         Ok(l) => l,
-                        Err(left) => return Err(ParseError::NotAnLValue(left)),
+                        Err(left) => return Err(Error::NotAnLValue(left)),
                     };
                     UntypedExpr {
                         span: item.span.to(&token.span),
@@ -434,7 +435,7 @@ where
                 TokenKind::Decrement => {
                     let item = match callable.into_lval() {
                         Ok(l) => l,
-                        Err(left) => return Err(ParseError::NotAnLValue(left)),
+                        Err(left) => return Err(Error::NotAnLValue(left)),
                     };
                     UntypedExpr {
                         span: item.span.to(&token.span),
@@ -494,7 +495,7 @@ where
             ..
         } = end_paren_token
         else {
-            return Err(ParseError::UnexpectedToken {
+            return Err(Error::UnexpectedToken {
                 expected: vec![TokenKind::CloseParen],
                 found: end_paren_token,
             });
@@ -502,11 +503,7 @@ where
         Ok(expr)
     }
 
-    fn cse(
-        &mut self,
-        opener: Token,
-        end: TokenKind,
-    ) -> Result<(Vec<UntypedExpr>, Span), ParseError> {
+    fn cse(&mut self, opener: Token, end: TokenKind) -> Result<(Vec<UntypedExpr>, Span), Error> {
         let mut items = Vec::new();
 
         let mut token = self.must_next_token("expression or closing")?; // TODO update this message
@@ -524,7 +521,7 @@ where
                     token = self.must_next_token("expr")?;
                 }
                 _ => {
-                    return Err(ParseError::UnexpectedToken {
+                    return Err(Error::UnexpectedToken {
                         expected: vec![end],
                         found: token,
                     })
@@ -549,7 +546,7 @@ where
         let mut exprs = Vec::new();
         loop {
             let Some(token) = self.lexer.next() else {
-                return Err(ParseError::UnexpectedEOF("expression in block"));
+                return Err(Error::UnexpectedEOF("expression in block"));
             };
             let token = token?;
             if TokenKind::CloseBrace == token.value {
@@ -566,7 +563,7 @@ where
         let item = self.must(Self::lval, "lval in for")?;
         let in_token = self.must_next_token("`in`")?;
         let TokenKind::In = in_token.value else {
-            return Err(ParseError::UnexpectedToken {
+            return Err(Error::UnexpectedToken {
                 expected: vec![TokenKind::In],
                 found: in_token,
             });
@@ -628,7 +625,7 @@ where
             value: TokenKind::SingleEquals,
         } = token
         else {
-            return Err(ParseError::UnexpectedToken {
+            return Err(Error::UnexpectedToken {
                 expected: vec![TokenKind::SingleEquals],
                 found: token,
             });
@@ -640,7 +637,7 @@ where
         })
     }
 
-    fn ids(&mut self, token: Token, recursed: bool) -> Result<DeclIds, ParseError> {
+    fn ids(&mut self, token: Token, recursed: bool) -> Result<DeclIds, Error> {
         let mut ids = Vec::new();
         let mut id;
         let mut force_tuple = false;
