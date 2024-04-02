@@ -618,7 +618,7 @@ where
             _ => unreachable!("Only pass tokens of type Let and Var into parser.declaration()"),
         };
         let token = self.must_next_token("variable name")?;
-        let names = self.ids(token, false)?;
+        let names = self.pattern(token, false)?;
         let token = self.must_next_token("`=`")?;
         let Token {
             span: _,
@@ -637,19 +637,18 @@ where
         })
     }
 
-    fn ids(&mut self, token: Token, recursed: bool) -> Result<Pattern, Error> {
-        let mut ids = Vec::new();
-        let mut id;
+    fn pattern(&mut self, token: Token, recursed: bool) -> Result<Pattern, Error> {
+        let mut pattern = Vec::new();
         let mut force_tuple = false;
         self.lexer.put_back(Ok(token));
         loop {
-            id = expect!(self => token {
+            pattern.push(expect!(self => token {
                 TokenKind::Identifier(s) => Pattern::One(s),
                 TokenKind::OpenParen => {
                     let token = self.must_next_token("open paren or identifier")?;
-                    self.ids(token, true)?
+                    self.pattern(token, true)?
                 }
-            });
+            }));
             expect!(self => token {
                 TokenKind::CloseParen if recursed => break,
                 TokenKind::SingleEquals if !recursed => {
@@ -660,13 +659,11 @@ where
                     force_tuple = true;
                 }
             });
-            ids.push(id);
         }
-        if ids.is_empty() && !force_tuple {
-            Ok(id)
+        if pattern.len() == 1 && !force_tuple {
+            pattern.pop().map_or_else(|| unreachable!(), Ok)
         } else {
-            ids.push(id);
-            Ok(Pattern::Many(ids))
+            Ok(Pattern::Many(pattern))
         }
     }
 
