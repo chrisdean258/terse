@@ -591,7 +591,7 @@ impl Interpretter {
         span: &Span,
     ) -> InterpretterResult {
         match callable {
-            Value::ExternalFunc(c) => Ok(c(self, &mut args)?),
+            Value::ExternalFunc(c) => Ok(c(self, &mut args, span)?),
             Value::Lambda(l) => {
                 self.scopes.open();
                 self.lambda_args.push(args);

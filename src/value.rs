@@ -1,4 +1,4 @@
-use crate::{expression::UntypedExpr, interpretter::Interpretter, intrinsics::Error};
+use crate::{expression::UntypedExpr, interpretter::Interpretter, intrinsics::Error, span::Span};
 use std::{
     cell::RefCell,
     fmt::{Debug, Display, Formatter},
@@ -15,7 +15,7 @@ pub enum Value {
     Bool(bool),
     Array(Rc<RefCell<Vec<Value>>>),
     Char(char),
-    ExternalFunc(fn(&mut Interpretter, &mut [Value]) -> Result<Value, Error>),
+    ExternalFunc(fn(&mut Interpretter, &mut [Value], &Span) -> Result<Value, Error>),
     Lambda(Rc<UntypedExpr>),
     Iterable(Iterable),
 }
