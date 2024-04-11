@@ -4,20 +4,22 @@ mod interpretter;
 mod intrinsics;
 mod lexer;
 mod parser;
+mod repl;
 mod span;
 mod token;
 mod value;
-
-fn usage() -> ExitCode {
-    eprintln!("Usage: terse <program_file>");
-    ExitCode::FAILURE
-}
 
 fn main() -> ExitCode {
     let mut args = env::args();
     let _program = args.next().expect("no program name");
     let Some(program_file) = args.next() else {
-        return usage();
+        return match repl::repl() {
+            Ok(_) => ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("{e}");
+                ExitCode::FAILURE
+            }
+        };
     };
     match read_and_run(&program_file) {
         Ok(_) => ExitCode::SUCCESS,
