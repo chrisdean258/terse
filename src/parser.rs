@@ -145,8 +145,8 @@ macro_rules! expect {
         let $token = $token?;
         match $token.value {
             $($tree)*
-            v => todo!("{v}"),
-        }
+                v => todo!("{v}"),
+            }
     }};
 }
 
@@ -339,22 +339,22 @@ where
             TokenKind::NotEqual => FlatBinOpKind::CmpNotEquals,
         } =>
 
-        bitshift {
-            TokenKind::BitShiftLeft => BinOpKind::BitShiftLeft,
-            TokenKind::BitShiftRight => BinOpKind::BitShiftRight,
-        } =>
+    bitshift {
+        TokenKind::BitShiftLeft => BinOpKind::BitShiftLeft,
+        TokenKind::BitShiftRight => BinOpKind::BitShiftRight,
+    } =>
 
-        additive {
-            TokenKind::Minus => BinOpKind::Subtract,
-            TokenKind::Plus => BinOpKind::Add,
-        } =>
+    additive {
+        TokenKind::Minus => BinOpKind::Subtract,
+        TokenKind::Plus => BinOpKind::Add,
+    } =>
 
-        multiplicative {
-            TokenKind::Asterik => BinOpKind::Multiply,
-            TokenKind::ForwardSlash => BinOpKind::Divide,
-            TokenKind::DoubleForwardSlash => BinOpKind::IntegerDivide,
-            TokenKind::Mod => BinOpKind::Mod,
-        } => prefix
+    multiplicative {
+        TokenKind::Asterik => BinOpKind::Multiply,
+        TokenKind::ForwardSlash => BinOpKind::Divide,
+        TokenKind::DoubleForwardSlash => BinOpKind::IntegerDivide,
+        TokenKind::Mod => BinOpKind::Mod,
+    } => prefix
     );
 
     fn prefix(&mut self, token: Token) -> ParseResult {
@@ -380,6 +380,16 @@ where
                     span: token.span.to(&item.span),
                     value: UntypedExprKind::RValue(RValueKind::Negate(Box::new(item))),
                 })
+            }
+            TokenKind::Plus => {
+                if let Some(tt) = self.lexer.next() {
+                    let tt = tt?;
+                    if matches!(&tt.value, TokenKind::Integer(_) | TokenKind::Float(_)) {
+                        return self.postfix(tt);
+                    }
+                    self.lexer.put_back(Ok(tt));
+                }
+                self.postfix(token)
             }
             _ => self.postfix(token),
         }
@@ -479,6 +489,10 @@ where
             TokenKind::While => self.while_(token)?,
             TokenKind::Break => self.break_(token)?,
             TokenKind::Continue => self.continue_(token)?,
+            TokenKind::Plus => UntypedExpr {
+                span: token.span,
+                value: UntypedExprKind::LValue(LValueKind::Variable("+".into())),
+            },
             a => todo!("{}:{a:?}", token.span),
         })
     }

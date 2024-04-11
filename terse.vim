@@ -60,7 +60,7 @@ syn match terseChar '\'\([^"\\]\|\\.\)\''
 syn match terseLambdaArg '\\\d\+'
 syn match terseComment '#.*$'
 
-syn match terseFunction "\<\k\+\ze("
+syn match terseFunction "\<\k\+\ze\s\{0,4}("
 
 hi def link terseConditional Conditional
 hi def link terseKeyword Keyword

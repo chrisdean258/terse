@@ -7,12 +7,15 @@ use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum Error {
+    #[allow(clippy::enum_variant_names)]
     #[error("{0}: Type error: expected `{1}` found `{2}`")]
     TypeError(&'static str, &'static str, Value),
     #[error("{0}: expected {1} argument(s) given {2}")]
     ArgumentCount(&'static str, usize, usize),
     #[error("{0}: cannot take the length of `{1}`")]
     CannotTakeLength(&'static str, Value),
+    #[error("{0}: cannot add `{1} + {2}`")]
+    CannotAdd(&'static str, Value, Value),
 }
 
 type IntrinsicsResult = Result<Value, Error>;
@@ -32,6 +35,7 @@ pub fn intrinsics() -> HashMap<String, Value> {
     vars.insert("collect".into(), Value::ExternalFunc(collect));
     vars.insert("push".into(), Value::ExternalFunc(push));
     vars.insert("len".into(), Value::ExternalFunc(len));
+    vars.insert("+".into(), Value::ExternalFunc(add));
     vars
 }
 
@@ -129,6 +133,7 @@ fn str_replace(_intp: &mut Interpretter, ipt: &mut [Value]) -> IntrinsicsResult 
     Ok(Value::Str(haystack.replace(&needle, &replacement)))
 }
 
+#[allow(clippy::cast_possible_wrap)]
 fn len(_intp: &mut Interpretter, ipt: &mut [Value]) -> IntrinsicsResult {
     expect_args(ipt, 1, "len")?;
     match &ipt[0] {
@@ -136,5 +141,18 @@ fn len(_intp: &mut Interpretter, ipt: &mut [Value]) -> IntrinsicsResult {
         Value::Tuple(a) => Ok(Value::Integer(a.len() as i64)),
         Value::Str(a) => Ok(Value::Integer(a.len() as i64)),
         _ => Err(Error::CannotTakeLength("len", ipt[0].clone_or_take())),
+    }
+}
+
+fn add(_intp: &mut Interpretter, ipt: &mut [Value]) -> IntrinsicsResult {
+    expect_args(ipt, 2, "+")?;
+    match (ipt[0].try_clone(), ipt[1].try_clone()) {
+        (Some(v1), Some(v2)) => (v1 + v2)
+            .map_err(|_| Error::CannotAdd("+", ipt[0].clone_or_take(), ipt[1].clone_or_take())),
+        _ => Err(Error::CannotAdd(
+            "+",
+            ipt[0].clone_or_take(),
+            ipt[1].clone_or_take(),
+        )),
     }
 }
