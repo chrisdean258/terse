@@ -8,7 +8,7 @@ use crate::{
     span::Span,
     value::Value,
 };
-use std::{cell::RefCell, collections::HashMap, error::Error as StdError, rc::Rc};
+use std::{cell::RefCell, collections::HashMap, rc::Rc};
 use thiserror::Error;
 
 pub struct Interpretter {
