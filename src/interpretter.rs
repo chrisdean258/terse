@@ -3,7 +3,7 @@ use crate::{
         BinOpKind, DeclarationKind, FlatBinOpKind, LValueKind, Pattern, RValueKind,
         ShortCircuitBinOpKind, UntypedExpr, UntypedExprKind, UntypedLValue,
     },
-    intrinsics::{intrinsics, Error as IntrinsicsError},
+    intrinsics::intrinsics,
     parser::Ast,
     span::Span,
     value::Value,
@@ -53,14 +53,27 @@ pub enum Error {
     BadConversion(#[from] std::num::TryFromIntError),
     #[error("{0}: `{1}` was declared as a constant with the `let` keyword")]
     VariableIsConstant(Span, String),
-    #[error("{0}")]
-    TypeErrorInIntrinsic(#[from] IntrinsicsError),
     #[error("{0}: `{1}` was moved")]
     VariableWasMoved(Span, String),
     #[error("Illegal flow control. Break or continue not in a loop")]
     IllegalFlowControl,
     #[error("{0}: Cannot negate `{1}`")]
     CannotNegate(Span, Value),
+    #[allow(clippy::enum_variant_names)]
+    #[error("{0}: In `{1}`: Type error: expected `{2}` found `{3}`")]
+    TypeError(Span, &'static str, &'static str, Value),
+    #[error("{0}: In `{1}`: expected {2} argument(s) given {3}")]
+    ArgumentCount(Span, &'static str, usize, usize),
+    #[error("{0}: In `{1}`: cannot take the length of `{2}`")]
+    CannotTakeLength(Span, &'static str, Value),
+    #[error("{0}: In `{1}`: cannot add `{2} + {3}`")]
+    CannotAdd(Span, &'static str, Value, Value),
+    #[error("{0}: In `{1}`: cannot add push onto `{2}`")]
+    CannotPush(Span, &'static str, Value),
+    #[error("{0}: In `{1}`: cannot iterate over `{2}`")]
+    CannotIterate(Span, &'static str, Value),
+    #[error("{0}: In `{1}`: iterable is empty")]
+    EmptyIterable(Span, &'static str),
 }
 
 pub struct ScopeTable {
@@ -68,7 +81,7 @@ pub struct ScopeTable {
 }
 
 #[derive(Debug)]
-enum FlowControl {
+pub enum FlowControl {
     Error(Error),
     Break(Value),
     Continue,
@@ -77,12 +90,6 @@ enum FlowControl {
 impl From<Error> for FlowControl {
     fn from(err: Error) -> Self {
         Self::Error(err)
-    }
-}
-
-impl From<IntrinsicsError> for FlowControl {
-    fn from(err: IntrinsicsError) -> Self {
-        Self::Error(Error::TypeErrorInIntrinsic(err))
     }
 }
 
@@ -331,7 +338,7 @@ impl Interpretter {
         span: &Span,
     ) -> InterpretterResult {
         let mut args: Vec<Value> = vec![left];
-        let b = if let UntypedExprKind::RValue(RValueKind::Call {
+        let mut b = if let UntypedExprKind::RValue(RValueKind::Call {
             callable,
             args: int_args,
         }) = &right.value
@@ -342,7 +349,7 @@ impl Interpretter {
         } else {
             self.expr(right)?
         };
-        self.evaluate_call(b, args, span)
+        self.evaluate_call(&mut b, args, span)
     }
 
     fn flat_binop(
@@ -584,9 +591,9 @@ impl Interpretter {
         Ok(val)
     }
 
-    fn evaluate_call(
+    pub fn evaluate_call(
         &mut self,
-        callable: Value,
+        callable: &mut Value,
         mut args: Vec<Value>,
         span: &Span,
     ) -> InterpretterResult {
@@ -595,7 +602,7 @@ impl Interpretter {
             Value::Lambda(l) => {
                 self.scopes.open();
                 self.lambda_args.push(args);
-                let result = self.expr(&l);
+                let result = self.expr(l);
                 self.lambda_args
                     .pop()
                     .expect("should have popped the args we pushed");
@@ -604,23 +611,23 @@ impl Interpretter {
             }
             _ => Err(FlowControl::Error(Error::NotCallable(
                 span.clone(),
-                callable,
+                callable.clone_or_take(),
             ))),
         }
     }
 
-    fn call(
+    pub fn call(
         &mut self,
         callable: &UntypedExpr,
         args: &[UntypedExpr],
         span: &Span,
     ) -> InterpretterResult {
-        let callable_val = self.expr(callable)?;
+        let mut callable_val = self.expr(callable)?;
         let args = args
             .iter()
             .map(|a| self.expr(a))
             .collect::<Result<Vec<_>, _>>()?;
-        self.evaluate_call(callable_val, args, span)
+        self.evaluate_call(&mut callable_val, args, span)
     }
 
     fn lambda_arg(&mut self, num: usize, span: &Span) -> InterpretterResult {

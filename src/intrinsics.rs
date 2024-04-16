@@ -1,25 +1,11 @@
 use crate::{
-    interpretter::Interpretter,
+    interpretter::{Error, FlowControl, Interpretter},
     span::Span,
     value::{Iterable, Value},
 };
 use std::{cell::RefCell, collections::HashMap, io::stdin, rc::Rc};
-use thiserror::Error;
 
-#[derive(Error, Debug)]
-pub enum Error {
-    #[allow(clippy::enum_variant_names)]
-    #[error("{0}: In `{1}`: Type error: expected `{2}` found `{3}`")]
-    TypeError(Span, &'static str, &'static str, Value),
-    #[error("{0}: In `{1}`: expected {2} argument(s) given {3}")]
-    ArgumentCount(Span, &'static str, usize, usize),
-    #[error("{0}: In `{1}`: cannot take the length of `{2}`")]
-    CannotTakeLength(Span, &'static str, Value),
-    #[error("{0}: In `{1}`: cannot add `{2} + {3}`")]
-    CannotAdd(Span, &'static str, Value, Value),
-}
-
-type IntrinsicsResult = Result<Value, Error>;
+type IntrinsicsResult = Result<Value, FlowControl>;
 
 pub fn intrinsics() -> HashMap<String, Value> {
     let mut vars = HashMap::new();
@@ -123,10 +109,16 @@ fn push(_intp: &mut Interpretter, ipt: &mut [Value], span: &Span) -> IntrinsicsR
     expect_args(ipt, span, 2, "push")?;
     let val = ipt[1].clone_or_take();
     match &mut ipt[0] {
-        Value::Array(a) => a.borrow_mut().push(val),
-        a => todo!("{a}"),
+        Value::Array(a) => {
+            a.borrow_mut().push(val);
+            Ok(Value::None)
+        }
+        a => Err(FlowControl::Error(Error::CannotPush(
+            span.clone(),
+            "push",
+            a.clone_or_take(),
+        ))),
     }
-    Ok(Value::None)
 }
 
 fn str_replace(_intp: &mut Interpretter, ipt: &mut [Value], span: &Span) -> IntrinsicsResult {
@@ -142,11 +134,11 @@ fn len(_intp: &mut Interpretter, ipt: &mut [Value], span: &Span) -> IntrinsicsRe
         Value::Array(a) => Ok(Value::Integer(a.borrow().len() as i64)),
         Value::Tuple(a) => Ok(Value::Integer(a.len() as i64)),
         Value::Str(a) => Ok(Value::Integer(a.len() as i64)),
-        _ => Err(Error::CannotTakeLength(
+        _ => Err(FlowControl::Error(Error::CannotTakeLength(
             span.clone(),
             "len",
             ipt[0].clone_or_take(),
-        )),
+        ))),
     }
 }
 
@@ -154,23 +146,50 @@ fn add(_intp: &mut Interpretter, ipt: &mut [Value], span: &Span) -> IntrinsicsRe
     expect_args(ipt, span, 2, "+")?;
     match (ipt[0].try_clone(), ipt[1].try_clone()) {
         (Some(v1), Some(v2)) => (v1 + v2).map_err(|_| {
-            Error::CannotAdd(
+            FlowControl::Error(Error::CannotAdd(
                 span.clone(),
                 "+",
                 ipt[0].clone_or_take(),
                 ipt[1].clone_or_take(),
-            )
+            ))
         }),
-        _ => Err(Error::CannotAdd(
+        _ => Err(FlowControl::Error(Error::CannotAdd(
             span.clone(),
             "+",
             ipt[0].clone_or_take(),
             ipt[1].clone_or_take(),
-        )),
+        ))),
     }
 }
 
-fn reduce(_intp: &mut Interpretter, ipt: &mut [Value], span: &Span) -> IntrinsicsResult {
+fn reduce(intp: &mut Interpretter, ipt: &mut [Value], span: &Span) -> IntrinsicsResult {
     expect_args(ipt, span, 2, "reduce")?;
-    todo!()
+    let iterable = ipt[0].clone_or_take();
+    let mut function = ipt[1].clone_or_take();
+    match iterable {
+        Value::Array(a) => {
+            let mut iterable = a.borrow_mut();
+            let Some(mut base) = iterable.first_mut().map(|a| a.clone_or_take()) else {
+                return Err(FlowControl::Error(Error::EmptyIterable(
+                    span.clone(),
+                    "reduce",
+                )));
+            };
+            for val in &mut iterable[1..] {
+                base = intp.evaluate_call(
+                    &mut function,
+                    vec![base.clone_or_take(), val.clone_or_take()],
+                    span,
+                )?;
+            }
+            Ok(base.clone_or_take())
+        }
+        _ => {
+            return Err(FlowControl::Error(Error::CannotIterate(
+                span.clone(),
+                "reduce",
+                iterable,
+            )))
+        }
+    }
 }
