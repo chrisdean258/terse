@@ -76,7 +76,7 @@ impl Value {
 impl Display for Value {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
         match self {
-            Self::None => write!(f, "none"),
+            Self::None => write!(f, "null"),
             Self::Moved => write!(f, "moved!"),
             Self::Bool(b) => write!(f, "{b}"),
             Self::Integer(i) => write!(f, "{i}"),
@@ -117,7 +117,7 @@ impl Display for Value {
 impl Debug for Value {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
         match self {
-            Self::None => write!(f, "none"),
+            Self::None => write!(f, "null"),
             Self::Moved => write!(f, "moved!"),
             Self::Bool(b) => write!(f, "{b}"),
             Self::Integer(i) => write!(f, "{i}"),
