@@ -12,16 +12,11 @@ mod value;
 fn main() -> ExitCode {
     let mut args = env::args();
     let _program = args.next().expect("no program name");
-    let Some(program_file) = args.next() else {
-        return match runner::repl() {
-            Ok(_) => ExitCode::SUCCESS,
-            Err(e) => {
-                eprintln!("{e}");
-                ExitCode::FAILURE
-            }
-        };
+    let val = match args.next() {
+        Some(program_file) => runner::read_and_run(&program_file).map(|_| ()),
+        None => runner::repl(),
     };
-    match runner::read_and_run(&program_file) {
+    match val {
         Ok(_) => ExitCode::SUCCESS,
         Err(e) => {
             println!("{e}");
