@@ -169,7 +169,7 @@ fn reduce(intp: &mut Interpretter, ipt: &mut [Value], span: &Span) -> Intrinsics
     match iterable {
         Value::Array(a) => {
             let mut iterable = a.borrow_mut();
-            let Some(mut base) = iterable.first_mut().map(|a| a.clone_or_take()) else {
+            let Some(mut base) = iterable.first_mut().map(Value::clone_or_take) else {
                 return Err(FlowControl::Error(Error::EmptyIterable(
                     span.clone(),
                     "reduce",
@@ -184,12 +184,10 @@ fn reduce(intp: &mut Interpretter, ipt: &mut [Value], span: &Span) -> Intrinsics
             }
             Ok(base.clone_or_take())
         }
-        _ => {
-            return Err(FlowControl::Error(Error::CannotIterate(
-                span.clone(),
-                "reduce",
-                iterable,
-            )))
-        }
+        _ => Err(FlowControl::Error(Error::CannotIterate(
+            span.clone(),
+            "reduce",
+            iterable,
+        ))),
     }
 }

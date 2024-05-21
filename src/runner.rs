@@ -27,7 +27,7 @@ where
     Ok(intp.interpret(&tree)?)
 }
 
-pub fn repl() -> Result<(), Box<dyn Error>> {
+pub fn repl(print_tree: bool) -> Result<(), Box<dyn Error>> {
     let mut rl = rustyline::DefaultEditor::new()?;
     let mut intp = interpretter_with_stdlib()?;
 
@@ -50,7 +50,10 @@ pub fn repl() -> Result<(), Box<dyn Error>> {
                     break;
                 }
             };
-            println!("{t:#?}");
+
+            if print_tree {
+                println!("{t:#?}");
+            }
             rl.add_history_entry(line.as_str())?;
             match intp.interpret(&t) {
                 Ok(Value::None) => {}
