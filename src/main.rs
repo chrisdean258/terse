@@ -1,4 +1,5 @@
-use std::{env, process::ExitCode};
+use clap::Parser;
+use std::process::ExitCode;
 mod expression;
 mod interpretter;
 mod intrinsics;
@@ -9,11 +10,22 @@ mod span;
 mod token;
 mod value;
 
+#[derive(Parser, Debug)]
+#[command(version, about)]
+struct Args {
+    /// File name to run
+    #[arg()]
+    program_name: Option<String>,
+    /// Print parse tree after parsing (interactive only)
+    #[arg(short, long)]
+    tree_print: bool,
+}
+
 fn main() -> ExitCode {
-    let mut args = env::args();
-    let _program = args.next().expect("no program name");
-    let val = args.next().map_or_else(
-        || runner::repl(false),
+    let args = Args::parse();
+    // let _program = args.next().expect("no program name");
+    let val = args.program_name.map_or_else(
+        || runner::repl(args.tree_print),
         |program_file| runner::read_and_run(&program_file).map(|_| ()),
     );
     match val {
