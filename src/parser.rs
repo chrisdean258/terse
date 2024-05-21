@@ -473,13 +473,7 @@ where
                 Self::tag_rval(RValueKind::LambdaArg(i), token.span)
             }
             TokenKind::LambdaArg(_) => self.lambda(token)?,
-            TokenKind::BackSlash => {
-                let expr = self.must(Self::lambda, "lambda expression")?;
-                UntypedExpr {
-                    span: expr.span.clone(),
-                    value: UntypedExprKind::RValue(RValueKind::Lambda(Rc::new(expr))),
-                }
-            }
+            TokenKind::BackSlash => self.must(Self::lambda, "lambda expression")?,
             TokenKind::OpenParen => self.paren(token)?,
             TokenKind::OpenBrace => self.block(token)?,
             TokenKind::Function => self.function(token)?,

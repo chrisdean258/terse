@@ -1,4 +1,4 @@
-use crate::{interpretter::Interpretter, lexer::Lexer, parser::parse, value::Value};
+use crate::{interpretter::Interpretter, lexer::Lexer, parser, value::Value};
 use std::{env, error::Error, fs::read_to_string, path::Path};
 
 pub fn read_and_run(filename: &str) -> Result<Value, Box<dyn Error>> {
@@ -23,7 +23,7 @@ where
 {
     let chars = read_to_string(filename)?;
     let lexer = Lexer::new(name, chars.chars().collect());
-    let tree = parse(lexer)?;
+    let tree = parser::parse(lexer)?;
     Ok(intp.interpret(&tree)?)
 }
 
@@ -33,23 +33,34 @@ pub fn repl() -> Result<(), Box<dyn Error>> {
 
     loop {
         let readline = rl.readline(">>> ");
-        let Ok(line) = readline else { break };
-        let l = Lexer::new("<stdin>".to_owned(), line.chars().collect());
-        let t = match parse(l) {
-            Ok(t) => t,
-            Err(e) => {
-                eprintln!("{e}");
-                continue;
-            }
-        };
-        match intp.interpret(&t) {
-            Ok(Value::None) => {}
-            Ok(t) => println!("{t}"),
-            Err(e) => {
-                eprintln!("{e}");
-                continue;
-            }
-        };
+        let Ok(mut line) = readline else { break };
+        loop {
+            let l = Lexer::new("<stdin>".to_owned(), line.chars().collect());
+            let t = match parser::parse(l) {
+                Ok(t) => t,
+                Err(parser::Error::UnexpectedEOF(a)) => {
+                    let Ok(readline) = rl.readline("...  ") else {
+                        return Err(parser::Error::UnexpectedEOF(a))?;
+                    };
+                    line += &readline;
+                    continue;
+                }
+                Err(e) => {
+                    eprintln!("{e}");
+                    break;
+                }
+            };
+            println!("{t:#?}");
+            rl.add_history_entry(line.as_str())?;
+            match intp.interpret(&t) {
+                Ok(Value::None) => {}
+                Ok(t) => println!("{t}"),
+                Err(e) => {
+                    eprintln!("{e}");
+                }
+            };
+            break;
+        }
     }
     Ok(())
 }
