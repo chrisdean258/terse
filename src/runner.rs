@@ -32,7 +32,7 @@ pub fn repl() -> Result<(), Box<dyn Error>> {
     let mut intp = interpretter_with_stdlib()?;
 
     loop {
-        let readline = rl.readline(">> ");
+        let readline = rl.readline(">>> ");
         let Ok(line) = readline else { break };
         let l = Lexer::new("<stdin>".to_owned(), line.chars().collect());
         let t = match parse(l) {
