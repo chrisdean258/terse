@@ -1,46 +1,82 @@
-use crate::span::Span;
+use crate::{span::Span, types::Type, value::Value};
 use std::{
     fmt::{Display, Formatter},
     rc::Rc,
 };
 
-#[derive(Debug, Clone)]
-pub struct UntypedExpr {
-    pub span: Span,
-    pub value: UntypedExprKind,
+#[derive(Debug)]
+pub struct Ast<T> {
+    pub exprs: Vec<Expr<T>>,
+}
+
+impl<T> std::fmt::Display for Ast<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        for e in &self.exprs {
+            writeln!(f, "{e}")?;
+        }
+        Ok(())
+    }
+}
+
+pub struct TypeSpec {
+    type_: Type,
+    value: Option<Value>,
 }
 
 #[derive(Debug, Clone)]
-pub struct UntypedLValue {
+pub struct Expr<T> {
     pub span: Span,
-    pub value: LValueKind,
+    pub value: ExprKind<T>,
+    pub typespec: T,
 }
 
-impl UntypedExpr {
-    pub fn into_lval(self) -> Result<UntypedLValue, Self> {
-        let UntypedExprKind::LValue(value) = self.value else {
+#[derive(Debug, Clone)]
+pub struct LValue<T> {
+    pub span: Span,
+    pub value: LValueKind<T>,
+}
+
+impl<T> Expr<T> {
+    pub fn into_lval(self) -> Result<LValue<T>, Self> {
+        let ExprKind::LValue(value) = self.value else {
             return Err(self);
         };
-        Ok(UntypedLValue {
+        Ok(LValue {
             value,
             span: self.span,
         })
     }
 }
 
-type SubExpr = Box<UntypedExpr>;
+type SubExpr<T> = Box<Expr<T>>;
+pub type UntypedExprKind = ExprKind<()>;
+pub type UntypedExpr = Expr<()>;
+pub type UntypedLValue = LValue<()>;
+pub type UntypedLValueKind = LValueKind<()>;
+pub type UntypedRValueKind = RValueKind<()>;
+pub type UntypedAst = Ast<()>;
+
+pub type TypedExprKind = ExprKind<TypeSpec>;
+pub type TypedExpr = Expr<TypeSpec>;
+pub type TypedLValue = LValue<TypeSpec>;
+pub type TypedLValueKind = LValueKind<TypeSpec>;
+pub type TypedRValueKind = RValueKind<TypeSpec>;
+pub type TypedAst = Ast<TypeSpec>;
 
 #[derive(Debug, Clone)]
-pub enum UntypedExprKind {
-    RValue(RValueKind),
-    LValue(LValueKind),
+pub enum ExprKind<T> {
+    RValue(RValueKind<T>),
+    LValue(LValueKind<T>),
 }
 
 #[derive(Debug, Clone)]
-pub enum LValueKind {
+pub enum LValueKind<T> {
     Variable(String),
-    BracketExpr { left: SubExpr, subscript: SubExpr },
-    Tuple(Vec<UntypedExpr>),
+    BracketExpr {
+        left: SubExpr<T>,
+        subscript: SubExpr<T>,
+    },
+    Tuple(Vec<Expr<T>>),
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -56,11 +92,11 @@ pub enum Pattern {
 }
 
 #[derive(Debug, Clone)]
-pub enum RValueKind {
+pub enum RValueKind<T> {
     Declaration {
         kind: DeclarationKind,
         names: Pattern,
-        value: SubExpr,
+        value: SubExpr<T>,
     },
     Integer(i64),
     Float(f64),
@@ -68,51 +104,51 @@ pub enum RValueKind {
     Char(char),
     Bool(bool),
     Assignment {
-        left: UntypedLValue,
-        right: SubExpr,
+        left: LValue<T>,
+        right: SubExpr<T>,
     },
     BinOp {
-        left: SubExpr,
+        left: SubExpr<T>,
         op: BinOpKind,
-        right: SubExpr,
+        right: SubExpr<T>,
     },
     FlatBinOp {
-        first: SubExpr,
-        rest: Vec<(FlatBinOpKind, SubExpr)>,
+        first: SubExpr<T>,
+        rest: Vec<(FlatBinOpKind, SubExpr<T>)>,
     },
     ShortCircuitBinOp {
-        left: SubExpr,
+        left: SubExpr<T>,
         op: ShortCircuitBinOpKind,
-        right: SubExpr,
+        right: SubExpr<T>,
     },
     For {
-        item: UntypedLValue,
-        items: SubExpr,
-        body: SubExpr,
+        item: LValue<T>,
+        items: SubExpr<T>,
+        body: SubExpr<T>,
     },
     If {
-        condition: SubExpr,
-        body: SubExpr,
-        else_: Option<SubExpr>,
+        condition: SubExpr<T>,
+        body: SubExpr<T>,
+        else_: Option<SubExpr<T>>,
     },
     While {
-        condition: SubExpr,
-        body: SubExpr,
+        condition: SubExpr<T>,
+        body: SubExpr<T>,
     },
     Call {
-        callable: SubExpr,
-        args: Vec<UntypedExpr>,
+        callable: SubExpr<T>,
+        args: Vec<Expr<T>>,
     },
-    PreIncr(UntypedLValue),
-    PreDecr(UntypedLValue),
-    PostIncr(UntypedLValue),
-    PostDecr(UntypedLValue),
-    Negate(SubExpr),
-    Block(Vec<UntypedExpr>),
+    PreIncr(LValue<T>),
+    PreDecr(LValue<T>),
+    PostIncr(LValue<T>),
+    PostDecr(LValue<T>),
+    Negate(SubExpr<T>),
+    Block(Vec<Expr<T>>),
     LambdaArg(usize),
-    Lambda(Rc<UntypedExpr>),
-    Array(Vec<UntypedExpr>),
-    Break(Option<SubExpr>),
+    Lambda(Rc<Expr<T>>),
+    Array(Vec<Expr<T>>),
+    Break(Option<SubExpr<T>>),
     Continue,
 }
 
@@ -205,7 +241,7 @@ impl Display for ShortCircuitBinOpKind {
     }
 }
 
-impl Display for RValueKind {
+impl<T> Display for RValueKind<T> {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
         match self {
             Self::Integer(i) => write!(f, "{i}"),
@@ -296,13 +332,13 @@ impl Display for RValueKind {
     }
 }
 
-impl Display for UntypedLValue {
+impl<T> Display for LValue<T> {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
         write!(f, "{}", self.value)
     }
 }
 
-impl Display for LValueKind {
+impl<T> Display for LValueKind<T> {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
         match self {
             Self::Variable(i) => write!(f, "{i}"),
@@ -319,7 +355,7 @@ impl Display for LValueKind {
     }
 }
 
-impl Display for UntypedExprKind {
+impl<T> Display for ExprKind<T> {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
         match self {
             Self::RValue(r) => write!(f, "{r}"),
@@ -328,7 +364,7 @@ impl Display for UntypedExprKind {
     }
 }
 
-impl Display for UntypedExpr {
+impl<T> Display for Expr<T> {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
         write!(f, "{}", self.value)
     }

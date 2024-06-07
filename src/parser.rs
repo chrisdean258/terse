@@ -1,8 +1,9 @@
 #![allow(clippy::needless_pass_by_value)]
+// TODO: go clean up the UntypedExpression with a new method and get ris of the useless typespec lines
 use crate::{
     expression::{
-        BinOpKind, DeclarationKind, FlatBinOpKind, LValueKind, Pattern, RValueKind,
-        ShortCircuitBinOpKind, UntypedExpr, UntypedExprKind, UntypedLValue,
+        BinOpKind, DeclarationKind, FlatBinOpKind, Pattern, ShortCircuitBinOpKind, UntypedAst,
+        UntypedExpr, UntypedExprKind, UntypedLValue, UntypedLValueKind, UntypedRValueKind,
     },
     lexer::LexError,
     span::Span,
@@ -28,27 +29,13 @@ pub enum Error {
     NotAnLValue(UntypedExpr),
 }
 
-#[derive(Debug)]
-pub struct Ast {
-    pub exprs: Vec<UntypedExpr>,
-}
-
-impl std::fmt::Display for Ast {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        for e in &self.exprs {
-            writeln!(f, "{e}")?;
-        }
-        Ok(())
-    }
-}
-
 struct Parser<I: Iterator<Item = Result<Token, LexError>>> {
     lexer: PutBack<I>,
     in_lambda: bool,
 }
 
-pub fn parse(lexer: impl Iterator<Item = Result<Token, LexError>>) -> Result<Ast, Error> {
-    let mut tree = Ast { exprs: Vec::new() };
+pub fn parse(lexer: impl Iterator<Item = Result<Token, LexError>>) -> Result<UntypedAst, Error> {
+    let mut tree = UntypedAst { exprs: Vec::new() };
     let mut parser = Parser {
         lexer: put_back(lexer),
         in_lambda: false,
@@ -86,11 +73,12 @@ macro_rules! binops {
                 let right = self.$next(tok2?)?;
                 left = UntypedExpr {
                     span: left.span.to(&right.span),
-                    value: UntypedExprKind::RValue(RValueKind::$return {
+                    value: UntypedExprKind::RValue(UntypedRValueKind::$return {
                         left: Box::new(left),
                         op,
                         right: Box::new(right),
                     })
+                    , typespec: (),
                 };
             }
         }
@@ -126,10 +114,11 @@ macro_rules! binops {
             } else {
                 UntypedExpr {
                     span : first.span.to(&rest.last().unwrap().1.span),
-                    value: UntypedExprKind::RValue(RValueKind::FlatBinOp {
+                    value: UntypedExprKind::RValue(UntypedRValueKind::FlatBinOp {
                         first: Box::new(first),
                         rest,
                     })
+                    , typespec: (),
                 }
             })
         }
@@ -167,17 +156,19 @@ where
         }
     }
 
-    const fn tag_rval(value: RValueKind, span: Span) -> UntypedExpr {
+    const fn tag_rval(value: UntypedRValueKind, span: Span) -> UntypedExpr {
         UntypedExpr {
             span,
             value: UntypedExprKind::RValue(value),
+            typespec: (),
         }
     }
 
-    const fn tag_lval(value: LValueKind, span: Span) -> UntypedExpr {
+    const fn tag_lval(value: UntypedLValueKind, span: Span) -> UntypedExpr {
         UntypedExpr {
             span,
             value: UntypedExprKind::LValue(value),
+            typespec: (),
         }
     }
 
@@ -229,7 +220,8 @@ where
                 let right = Box::new(self.expr(token?)?);
                 let rtn = UntypedExpr {
                     span: left.span.to(&right.span),
-                    value: UntypedExprKind::RValue(RValueKind::Assignment { left, right }),
+                    value: UntypedExprKind::RValue(UntypedRValueKind::Assignment { left, right }),
+                    typespec: (),
                 };
                 return Ok(rtn);
             }
@@ -257,13 +249,15 @@ where
         let span = left.span.to(&right.span);
         let rtn = UntypedExpr {
             span: span.clone(),
-            value: UntypedExprKind::RValue(RValueKind::Assignment {
+            value: UntypedExprKind::RValue(UntypedRValueKind::Assignment {
                 left,
                 right: Box::new(UntypedExpr {
                     span,
-                    value: UntypedExprKind::RValue(RValueKind::BinOp { left: r, op, right }),
+                    value: UntypedExprKind::RValue(UntypedRValueKind::BinOp { left: r, op, right }),
+                    typespec: (),
                 }),
             }),
+            typespec: (),
         };
         Ok(rtn)
     }
@@ -274,7 +268,8 @@ where
         self.in_lambda = save;
         Ok(UntypedExpr {
             span: expr.span.clone(),
-            value: UntypedExprKind::RValue(RValueKind::Lambda(Rc::new(expr))),
+            value: UntypedExprKind::RValue(UntypedRValueKind::Lambda(Rc::new(expr))),
+            typespec: (),
         })
     }
 
@@ -309,7 +304,8 @@ where
 
         Ok(UntypedExpr {
             span,
-            value: UntypedExprKind::LValue(LValueKind::Tuple(exprs)),
+            value: UntypedExprKind::LValue(UntypedLValueKind::Tuple(exprs)),
+            typespec: (),
         })
     }
 
@@ -364,21 +360,24 @@ where
                 let item = self.must(Self::lval, "expression")?;
                 Ok(UntypedExpr {
                     span: item.span.to(&token.span),
-                    value: UntypedExprKind::RValue(RValueKind::PreIncr(item)),
+                    value: UntypedExprKind::RValue(UntypedRValueKind::PreIncr(item)),
+                    typespec: (),
                 })
             }
             TokenKind::Decrement => {
                 let item = self.must(Self::lval, "expression")?;
                 Ok(UntypedExpr {
                     span: item.span.to(&token.span),
-                    value: UntypedExprKind::RValue(RValueKind::PreDecr(item)),
+                    value: UntypedExprKind::RValue(UntypedRValueKind::PreDecr(item)),
+                    typespec: (),
                 })
             }
             TokenKind::Minus => {
                 let item = self.must(Self::postfix, "expression")?;
                 Ok(UntypedExpr {
                     span: token.span.to(&item.span),
-                    value: UntypedExprKind::RValue(RValueKind::Negate(Box::new(item))),
+                    value: UntypedExprKind::RValue(UntypedRValueKind::Negate(Box::new(item))),
+                    typespec: (),
                 })
             }
             TokenKind::Plus => {
@@ -404,10 +403,11 @@ where
                     let (args, span) = self.cse(token, TokenKind::CloseParen)?;
                     UntypedExpr {
                         span: callable.span.to(&span),
-                        value: UntypedExprKind::RValue(RValueKind::Call {
+                        value: UntypedExprKind::RValue(UntypedRValueKind::Call {
                             callable: Box::new(callable),
                             args,
                         }),
+                        typespec: (),
                     }
                 }
                 TokenKind::OpenBracket => {
@@ -426,10 +426,11 @@ where
 
                     UntypedExpr {
                         span: callable.span.to(&subscript.span),
-                        value: UntypedExprKind::LValue(LValueKind::BracketExpr {
+                        value: UntypedExprKind::LValue(UntypedLValueKind::BracketExpr {
                             left: Box::new(callable),
                             subscript,
                         }),
+                        typespec: (),
                     }
                 }
                 TokenKind::Increment => {
@@ -439,7 +440,8 @@ where
                     };
                     UntypedExpr {
                         span: item.span.to(&token.span),
-                        value: UntypedExprKind::RValue(RValueKind::PostIncr(item)),
+                        value: UntypedExprKind::RValue(UntypedRValueKind::PostIncr(item)),
+                        typespec: (),
                     }
                 }
                 TokenKind::Decrement => {
@@ -449,7 +451,8 @@ where
                     };
                     UntypedExpr {
                         span: item.span.to(&token.span),
-                        value: UntypedExprKind::RValue(RValueKind::PostDecr(item)),
+                        value: UntypedExprKind::RValue(UntypedRValueKind::PostDecr(item)),
+                        typespec: (),
                     }
                 }
                 _ => {
@@ -463,14 +466,14 @@ where
 
     fn literal_id_or_recurse(&mut self, token: Token) -> ParseResult {
         Ok(match token.value {
-            TokenKind::Integer(i) => Self::tag_rval(RValueKind::Integer(i), token.span),
-            TokenKind::Float(f) => Self::tag_rval(RValueKind::Float(f), token.span),
-            TokenKind::Str(s) => Self::tag_rval(RValueKind::Str(s), token.span),
-            TokenKind::Char(c) => Self::tag_rval(RValueKind::Char(c), token.span),
-            TokenKind::Bool(b) => Self::tag_rval(RValueKind::Bool(b), token.span),
-            TokenKind::Identifier(i) => Self::tag_lval(LValueKind::Variable(i), token.span),
+            TokenKind::Integer(i) => Self::tag_rval(UntypedRValueKind::Integer(i), token.span),
+            TokenKind::Float(f) => Self::tag_rval(UntypedRValueKind::Float(f), token.span),
+            TokenKind::Str(s) => Self::tag_rval(UntypedRValueKind::Str(s), token.span),
+            TokenKind::Char(c) => Self::tag_rval(UntypedRValueKind::Char(c), token.span),
+            TokenKind::Bool(b) => Self::tag_rval(UntypedRValueKind::Bool(b), token.span),
+            TokenKind::Identifier(i) => Self::tag_lval(UntypedLValueKind::Variable(i), token.span),
             TokenKind::LambdaArg(i) if self.in_lambda => {
-                Self::tag_rval(RValueKind::LambdaArg(i), token.span)
+                Self::tag_rval(UntypedRValueKind::LambdaArg(i), token.span)
             }
             TokenKind::LambdaArg(_) => self.lambda(token)?,
             TokenKind::BackSlash => self.must(Self::lambda, "lambda expression")?,
@@ -485,7 +488,8 @@ where
             TokenKind::Continue => self.continue_(token)?,
             TokenKind::Plus => UntypedExpr {
                 span: token.span,
-                value: UntypedExprKind::LValue(LValueKind::Variable("+".into())),
+                value: UntypedExprKind::LValue(UntypedLValueKind::Variable("+".into())),
+                typespec: (),
             },
             a => todo!("{}:{a:?}", token.span),
         })
@@ -546,7 +550,8 @@ where
         let (items, span) = self.cse(open_bracket_token, TokenKind::CloseBracket)?;
         Ok(UntypedExpr {
             span,
-            value: UntypedExprKind::RValue(RValueKind::Array(items)),
+            value: UntypedExprKind::RValue(UntypedRValueKind::Array(items)),
+            typespec: (),
         })
     }
 
@@ -560,7 +565,8 @@ where
             if TokenKind::CloseBrace == token.value {
                 return Ok(UntypedExpr {
                     span: open_brace_token.span.to(&token.span),
-                    value: UntypedExprKind::RValue(RValueKind::Block(exprs)),
+                    value: UntypedExprKind::RValue(UntypedRValueKind::Block(exprs)),
+                    typespec: (),
                 });
             }
             exprs.push(self.expr(token)?);
@@ -580,7 +586,8 @@ where
         let body = Box::new(self.must(Self::expr, "expresion body of for loop")?);
         Ok(UntypedExpr {
             span: for_token.span.to(&body.span),
-            value: UntypedExprKind::RValue(RValueKind::For { item, items, body }),
+            value: UntypedExprKind::RValue(UntypedRValueKind::For { item, items, body }),
+            typespec: (),
         })
     }
 
@@ -602,11 +609,12 @@ where
         };
         Ok(UntypedExpr {
             span: if_token.span.to(&body.span),
-            value: UntypedExprKind::RValue(RValueKind::If {
+            value: UntypedExprKind::RValue(UntypedRValueKind::If {
                 condition,
                 body,
                 else_,
             }),
+            typespec: (),
         })
     }
 
@@ -615,7 +623,8 @@ where
         let body = Box::new(self.must(Self::expr, "body in while")?);
         Ok(UntypedExpr {
             span: while_token.span.to(&body.span),
-            value: UntypedExprKind::RValue(RValueKind::While { condition, body }),
+            value: UntypedExprKind::RValue(UntypedRValueKind::While { condition, body }),
+            typespec: (),
         })
     }
 
@@ -641,7 +650,8 @@ where
         let value = Box::new(self.must(Self::expr, "expression")?);
         Ok(UntypedExpr {
             span: decl_type.span.to(&value.span),
-            value: UntypedExprKind::RValue(RValueKind::Declaration { kind, names, value }),
+            value: UntypedExprKind::RValue(UntypedRValueKind::Declaration { kind, names, value }),
+            typespec: (),
         })
     }
 
@@ -686,7 +696,8 @@ where
         };
         Ok(UntypedExpr {
             span,
-            value: UntypedExprKind::RValue(RValueKind::Break(subexpr)),
+            value: UntypedExprKind::RValue(UntypedRValueKind::Break(subexpr)),
+            typespec: (),
         })
     }
 
@@ -695,7 +706,8 @@ where
         let _ = self;
         Ok(UntypedExpr {
             span: token.span,
-            value: UntypedExprKind::RValue(RValueKind::Continue),
+            value: UntypedExprKind::RValue(UntypedRValueKind::Continue),
+            typespec: (),
         })
     }
 }

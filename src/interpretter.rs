@@ -1,10 +1,9 @@
 use crate::{
     expression::{
-        BinOpKind, DeclarationKind, FlatBinOpKind, LValueKind, Pattern, RValueKind,
-        ShortCircuitBinOpKind, UntypedExpr, UntypedExprKind, UntypedLValue,
+        BinOpKind, DeclarationKind, FlatBinOpKind, Pattern, ShortCircuitBinOpKind, UntypedAst,
+        UntypedExpr, UntypedExprKind, UntypedLValue, UntypedLValueKind, UntypedRValueKind,
     },
     intrinsics::intrinsics,
-    parser::Ast,
     span::Span,
     value::Value,
 };
@@ -169,7 +168,7 @@ impl Interpretter {
         }
     }
 
-    pub fn interpret(&mut self, ast: &Ast) -> Result<Value, Error> {
+    pub fn interpret(&mut self, ast: &UntypedAst) -> Result<Value, Error> {
         let mut val = Value::None;
         for expr in &ast.exprs {
             val = match self.expr(expr) {
@@ -189,50 +188,58 @@ impl Interpretter {
     fn expr(&mut self, expr: &UntypedExpr) -> InterpretterResult {
         match &expr.value {
             UntypedExprKind::RValue(r) => match r {
-                RValueKind::Integer(i) => Ok(Value::Integer(*i)),
-                RValueKind::Float(f) => Ok(Value::Float(*f)),
-                RValueKind::Bool(b) => Ok(Value::Bool(*b)),
-                RValueKind::Str(s) => Ok(Value::Str(s.clone())),
-                RValueKind::Char(c) => Ok(Value::Char(*c)),
-                RValueKind::BinOp { left, op, right } => self.binop(&expr.span, left, *op, right),
-                RValueKind::FlatBinOp { first, rest } => self.flat_binop(&expr.span, first, rest),
-                RValueKind::ShortCircuitBinOp { left, op, right } => {
+                UntypedRValueKind::Integer(i) => Ok(Value::Integer(*i)),
+                UntypedRValueKind::Float(f) => Ok(Value::Float(*f)),
+                UntypedRValueKind::Bool(b) => Ok(Value::Bool(*b)),
+                UntypedRValueKind::Str(s) => Ok(Value::Str(s.clone())),
+                UntypedRValueKind::Char(c) => Ok(Value::Char(*c)),
+                UntypedRValueKind::BinOp { left, op, right } => {
+                    self.binop(&expr.span, left, *op, right)
+                }
+                UntypedRValueKind::FlatBinOp { first, rest } => {
+                    self.flat_binop(&expr.span, first, rest)
+                }
+                UntypedRValueKind::ShortCircuitBinOp { left, op, right } => {
                     self.short_circuit_binop(&expr.span, left, *op, right)
                 }
-                RValueKind::Assignment { left, right } => self.assign_expr(left, right, &expr.span),
-                RValueKind::For { item, items, body } => self.for_(item, items, body),
-                RValueKind::If {
+                UntypedRValueKind::Assignment { left, right } => {
+                    self.assign_expr(left, right, &expr.span)
+                }
+                UntypedRValueKind::For { item, items, body } => self.for_(item, items, body),
+                UntypedRValueKind::If {
                     condition,
                     body,
                     else_,
                 } => self.if_(condition, body, else_.as_ref().map(AsRef::as_ref)),
-                RValueKind::While { condition, body } => self.while_(condition, body),
-                RValueKind::Block(exprs) => self.block(exprs),
-                RValueKind::Call { callable, args } => self.call(callable, args, &expr.span),
-                RValueKind::Lambda(subexpr) => Ok(Value::Lambda(subexpr.clone())),
-                RValueKind::LambdaArg(i) => self.lambda_arg(*i, &expr.span),
-                RValueKind::Array(a) => self.array(a),
-                RValueKind::Declaration { kind, names, value } => {
+                UntypedRValueKind::While { condition, body } => self.while_(condition, body),
+                UntypedRValueKind::Block(exprs) => self.block(exprs),
+                UntypedRValueKind::Call { callable, args } => self.call(callable, args, &expr.span),
+                UntypedRValueKind::Lambda(subexpr) => Ok(Value::Lambda(subexpr.clone())),
+                UntypedRValueKind::LambdaArg(i) => self.lambda_arg(*i, &expr.span),
+                UntypedRValueKind::Array(a) => self.array(a),
+                UntypedRValueKind::Declaration { kind, names, value } => {
                     let v = self.expr(value)?;
                     self.declaration(*kind, names, v, &expr.span)
                 }
-                RValueKind::Break(expr) => self.break_(expr.as_ref().map(AsRef::as_ref)),
-                RValueKind::Continue => Err(FlowControl::Continue),
-                RValueKind::PreIncr(e) => self.preincr(e),
-                RValueKind::PreDecr(e) => self.predecr(e),
-                RValueKind::PostIncr(e) => self.postincr(e),
-                RValueKind::PostDecr(e) => self.postdecr(e),
-                RValueKind::Negate(e) => self.negate(e.as_ref()),
+                UntypedRValueKind::Break(expr) => self.break_(expr.as_ref().map(AsRef::as_ref)),
+                UntypedRValueKind::Continue => Err(FlowControl::Continue),
+                UntypedRValueKind::PreIncr(e) => self.preincr(e),
+                UntypedRValueKind::PreDecr(e) => self.predecr(e),
+                UntypedRValueKind::PostIncr(e) => self.postincr(e),
+                UntypedRValueKind::PostDecr(e) => self.postdecr(e),
+                UntypedRValueKind::Negate(e) => self.negate(e.as_ref()),
             },
             UntypedExprKind::LValue(l) => self.lval(l, &expr.span),
         }
     }
 
-    fn lval(&mut self, expr: &LValueKind, span: &Span) -> InterpretterResult {
+    fn lval(&mut self, expr: &UntypedLValueKind, span: &Span) -> InterpretterResult {
         match expr {
-            LValueKind::Variable(s) => self.variable(span, s),
-            LValueKind::BracketExpr { left, subscript } => self.bracket(span, left, subscript),
-            LValueKind::Tuple(t) => self.tuple(t),
+            UntypedLValueKind::Variable(s) => self.variable(span, s),
+            UntypedLValueKind::BracketExpr { left, subscript } => {
+                self.bracket(span, left, subscript)
+            }
+            UntypedLValueKind::Tuple(t) => self.tuple(t),
         }
     }
 
@@ -338,7 +345,7 @@ impl Interpretter {
         span: &Span,
     ) -> InterpretterResult {
         let mut args: Vec<Value> = vec![left];
-        let mut b = if let UntypedExprKind::RValue(RValueKind::Call {
+        let mut b = if let UntypedExprKind::RValue(UntypedRValueKind::Call {
             callable,
             args: int_args,
         }) = &right.value
@@ -405,9 +412,14 @@ impl Interpretter {
         }
     }
 
-    fn assign_value(&mut self, left: &LValueKind, right: Value, span: &Span) -> InterpretterResult {
+    fn assign_value(
+        &mut self,
+        left: &UntypedLValueKind,
+        right: Value,
+        span: &Span,
+    ) -> InterpretterResult {
         match (left, right) {
-            (LValueKind::Variable(ref s), right) => match self.scopes.get_mut(s) {
+            (UntypedLValueKind::Variable(ref s), right) => match self.scopes.get_mut(s) {
                 Ok(v) => *v = right,
                 Err(GetMutError::NoSuchKey) => {
                     return Err(FlowControl::Error(Error::NoSuchVariable(
@@ -422,7 +434,7 @@ impl Interpretter {
                     )))
                 }
             },
-            (LValueKind::Tuple(lvals), Value::Tuple(t)) => {
+            (UntypedLValueKind::Tuple(lvals), Value::Tuple(t)) => {
                 if lvals.len() != t.len() {
                     return Err(FlowControl::Error(Error::AssignmentLengthMismatch(
                         span.clone(),
@@ -435,7 +447,7 @@ impl Interpretter {
                 }
             }
 
-            (LValueKind::Tuple(lvals), Value::Array(t)) => {
+            (UntypedLValueKind::Tuple(lvals), Value::Array(t)) => {
                 if lvals.len() != t.borrow().len() {
                     return Err(FlowControl::Error(Error::AssignmentLengthMismatch(
                         span.clone(),
@@ -449,9 +461,9 @@ impl Interpretter {
             }
 
             #[allow(clippy::manual_let_else)]
-            (LValueKind::BracketExpr { left, subscript }, val) => {
+            (UntypedLValueKind::BracketExpr { left, subscript }, val) => {
                 let left = match left.value {
-                    UntypedExprKind::LValue(LValueKind::Variable(ref s)) => s,
+                    UntypedExprKind::LValue(UntypedLValueKind::Variable(ref s)) => s,
                     _ => todo!(),
                 };
                 let idx = self.expr(subscript)?;
@@ -491,7 +503,7 @@ impl Interpretter {
             Value::Iterable(iterable) => {
                 for val in iterable {
                     match item.value {
-                        LValueKind::Variable(ref s) => {
+                        UntypedLValueKind::Variable(ref s) => {
                             self.scopes.insert(s.clone(), val, Var);
                         }
                         _ => todo!(),
@@ -516,7 +528,7 @@ impl Interpretter {
         use DeclarationKind::Var;
         for val in items {
             match item.value {
-                LValueKind::Variable(ref s) => {
+                UntypedLValueKind::Variable(ref s) => {
                     self.scopes.insert(s.clone(), val, Var);
                 }
                 _ => todo!(),

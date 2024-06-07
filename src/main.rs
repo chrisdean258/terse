@@ -8,6 +8,8 @@ mod parser;
 mod runner;
 mod span;
 mod token;
+mod typechecker;
+mod types;
 mod value;
 
 #[derive(Parser, Debug)]
