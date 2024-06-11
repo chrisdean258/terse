@@ -1,17 +1,19 @@
 use crate::{
     expression::{
-        BinOpKind, DeclarationKind, FlatBinOpKind, Pattern, ShortCircuitBinOpKind, UntypedAst,
-        UntypedExpr, UntypedExprKind, UntypedLValue, UntypedLValueKind, UntypedRValueKind,
+        BinOpKind, FlatBinOpKind, Pattern, ShortCircuitBinOpKind, UntypedAst, UntypedExpr,
+        UntypedExprKind, UntypedLValue, UntypedLValueKind, UntypedRValueKind,
     },
     intrinsics::intrinsics,
+    scope_table::{GetMutError, ScopeTable},
     span::Span,
+    types::DeclarationKind,
     value::Value,
 };
 use std::{cell::RefCell, collections::HashMap, rc::Rc};
 use thiserror::Error;
 
 pub struct Interpretter {
-    scopes: ScopeTable,
+    scopes: ScopeTable<Value>,
     lambda_args: Vec<Vec<Value>>,
 }
 
@@ -75,10 +77,6 @@ pub enum Error {
     EmptyIterable(Span, &'static str),
 }
 
-pub struct ScopeTable {
-    scopes: Vec<HashMap<String, (Value, DeclarationKind)>>,
-}
-
 #[derive(Debug)]
 pub enum FlowControl {
     Error(Error),
@@ -93,64 +91,6 @@ impl From<Error> for FlowControl {
 }
 
 type InterpretterResult = Result<Value, FlowControl>;
-
-enum GetMutError {
-    NoSuchKey,
-    IsLetVar,
-}
-impl ScopeTable {
-    fn new(presets: HashMap<String, (Value, DeclarationKind)>) -> Self {
-        Self {
-            scopes: vec![presets],
-        }
-    }
-    fn insert(&mut self, key: String, val: Value, kind: DeclarationKind) {
-        self.scopes
-            .last_mut()
-            .expect("scopes is empty")
-            .insert(key, (val, kind));
-    }
-
-    fn get(&mut self, key: &str) -> Option<&mut Value> {
-        for scope in self.scopes.iter_mut().rev() {
-            if let Some((v, _)) = scope.get_mut(key) {
-                return Some(v);
-            }
-        }
-        None
-    }
-
-    fn get_mut(&mut self, key: &str) -> Result<&mut Value, GetMutError> {
-        for scope in self.scopes.iter_mut().rev() {
-            if let Some((v, k)) = scope.get_mut(key) {
-                return match k {
-                    DeclarationKind::Var => Ok(v),
-                    DeclarationKind::Let => Err(GetMutError::IsLetVar),
-                };
-            }
-        }
-        Err(GetMutError::NoSuchKey)
-    }
-
-    fn clone_or_take(&mut self, key: &str) -> Option<Value> {
-        for scope in self.scopes.iter_mut().rev() {
-            if let Some((v, _)) = scope.get_mut(key) {
-                // we can take out of `let` or `var` decls
-                return Some(v.clone_or_take());
-            }
-        }
-        None
-    }
-
-    pub fn open(&mut self) {
-        self.scopes.push(HashMap::new());
-    }
-
-    pub fn close(&mut self) {
-        self.scopes.pop();
-        assert!(!self.scopes.is_empty(), "popped last scope");
-    }
-}
 
 impl Interpretter {
     pub fn new() -> Self {

@@ -1,8 +1,14 @@
-use crate::{span::Span, types::Type, value::Value};
+use crate::{
+    span::Span,
+    types::{DeclarationKind, TypeSpec as TS},
+    value::Value,
+};
 use std::{
     fmt::{Display, Formatter},
     rc::Rc,
 };
+
+type TypeSpec = TS<Value>;
 
 #[derive(Debug)]
 pub struct Ast<T> {
@@ -16,11 +22,6 @@ impl<T> std::fmt::Display for Ast<T> {
         }
         Ok(())
     }
-}
-
-pub struct TypeSpec {
-    type_: Type,
-    value: Option<Value>,
 }
 
 #[derive(Debug, Clone)]
@@ -77,12 +78,6 @@ pub enum LValueKind<T> {
         subscript: SubExpr<T>,
     },
     Tuple(Vec<Expr<T>>),
-}
-
-#[derive(Debug, Clone, Copy)]
-pub enum DeclarationKind {
-    Let,
-    Var,
 }
 
 #[derive(Debug, Clone)]

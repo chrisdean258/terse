@@ -10,6 +10,7 @@ mod span;
 mod token;
 mod typechecker;
 mod types;
+mod scope_table;
 mod value;
 
 #[derive(Parser, Debug)]

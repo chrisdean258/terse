@@ -2,12 +2,13 @@
 // TODO: go clean up the UntypedExpression with a new method and get ris of the useless typespec lines
 use crate::{
     expression::{
-        BinOpKind, DeclarationKind, FlatBinOpKind, Pattern, ShortCircuitBinOpKind, UntypedAst,
-        UntypedExpr, UntypedExprKind, UntypedLValue, UntypedLValueKind, UntypedRValueKind,
+        BinOpKind, FlatBinOpKind, Pattern, ShortCircuitBinOpKind, UntypedAst, UntypedExpr,
+        UntypedExprKind, UntypedLValue, UntypedLValueKind, UntypedRValueKind,
     },
     lexer::LexError,
     span::Span,
     token::{Kind as TokenKind, Token},
+    types::DeclarationKind,
 };
 use itertools::{put_back, structs::PutBack};
 use std::rc::Rc;
