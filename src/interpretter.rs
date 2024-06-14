@@ -128,11 +128,7 @@ impl Interpretter {
     fn expr(&mut self, expr: &UntypedExpr) -> InterpretterResult {
         match &expr.value {
             UntypedExprKind::RValue(r) => match r {
-                UntypedRValueKind::Integer(i) => Ok(Value::Integer(*i)),
-                UntypedRValueKind::Float(f) => Ok(Value::Float(*f)),
-                UntypedRValueKind::Bool(b) => Ok(Value::Bool(*b)),
-                UntypedRValueKind::Str(s) => Ok(Value::Str(s.clone())),
-                UntypedRValueKind::Char(c) => Ok(Value::Char(*c)),
+                UntypedRValueKind::Value(v) => Ok(v.clone().into()),
                 UntypedRValueKind::BinOp { left, op, right } => {
                     self.binop(&expr.span, left, *op, right)
                 }

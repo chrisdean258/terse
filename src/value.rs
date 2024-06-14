@@ -9,19 +9,56 @@ use std::{
     rc::Rc,
 };
 
+#[derive(Clone)]
 pub enum Value {
     None,
-    Moved,
     Integer(i64),
     Float(f64),
     Str(String),
-    Tuple(Vec<Value>),
     Bool(bool),
-    Array(Rc<RefCell<Vec<Value>>>),
     Char(char),
+    Moved,
+    Tuple(Vec<Value>),
+    Array(Rc<RefCell<Vec<Value>>>),
     ExternalFunc(fn(&mut Interpretter, &mut [Value], &Span) -> Result<Value, FlowControl>),
     Lambda(Rc<UntypedExpr>),
     Iterable(Iterable),
+}
+
+#[derive(Clone, Debug)]
+pub enum ParserValue {
+    None,
+    Integer(i64),
+    Float(f64),
+    Str(String),
+    Bool(bool),
+    Char(char),
+}
+
+impl From<ParserValue> for Value {
+    fn from(val: ParserValue) -> Self {
+        match val {
+            ParserValue::None => Self::None,
+            ParserValue::Integer(i) => Self::Integer(i),
+            ParserValue::Float(f) => Self::Float(f),
+            ParserValue::Str(s) => Self::Str(s),
+            ParserValue::Bool(b) => Self::Bool(b),
+            ParserValue::Char(c) => Self::Char(c),
+        }
+    }
+}
+
+impl Display for ParserValue {
+    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
+        match self {
+            Self::None => write!(f, "null"),
+            Self::Bool(b) => write!(f, "{b}"),
+            Self::Integer(i) => write!(f, "{i}"),
+            Self::Float(fl) => write!(f, "{fl}"),
+            Self::Str(s) => write!(f, "{s}"),
+            Self::Char(c) => write!(f, "{c}"),
+        }
+    }
 }
 
 #[derive(Clone)]

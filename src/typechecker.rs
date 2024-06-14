@@ -1,12 +1,13 @@
 #![allow(dead_code)]
 use crate::{
     expression::{
-        TypedAst, TypedExpr, TypedExprKind, TypedRValueKind, UntypedAst, UntypedExpr,
-        UntypedExprKind, UntypedRValueKind,
+        BinOpKind, TypedAst, TypedExpr, TypedExprKind, TypedRValueKind, UntypedAst, UntypedExpr,
+        UntypedExprKind, UntypedLValueKind, UntypedRValueKind,
     },
     scope_table::ScopeTable,
-    types::{TypeSpec, INTEGER},
-    value::Value,
+    span::Span,
+    types::Type,
+    value::ParserValue,
 };
 
 pub struct TypeChecker {
@@ -41,25 +42,25 @@ impl TypeChecker {
     }
 
     fn expr(&mut self, expr: UntypedExpr) -> Result<TypedExpr, Vec<Error>> {
-        match &expr.value {
+        match expr.value {
             UntypedExprKind::RValue(r) => match r {
-                UntypedRValueKind::Integer(i) => Ok(TypedExpr {
+                UntypedRValueKind::Value(v) => Ok(TypedExpr {
                     span: expr.span,
-                    value: TypedExprKind::RValue(TypedRValueKind::Integer(*i)),
-                    typespec: TypeSpec {
-                        type_: INTEGER,
-                        value: Some(Value::Integer(*i)),
+                    typespec: match &v {
+                        ParserValue::None => Type::Null,
+                        ParserValue::Integer(_) => Type::Integer,
+                        ParserValue::Float(_) => Type::Float,
+                        ParserValue::Str(_) => Type::Str,
+                        ParserValue::Bool(_) => Type::Bool,
+                        ParserValue::Char(_) => Type::Char,
                     },
+                    value: TypedExprKind::RValue(TypedRValueKind::Value(v)),
                 }),
+                UntypedRValueKind::BinOp { left, op, right } => {
+                    self.binop(&expr.span, *left, op, *right)
+                }
                 _ => todo!(),
                 /*
-                UntypedRValueKind::Float(f) => Ok(Value::Float(*f)),
-                UntypedRValueKind::Bool(b) => Ok(Value::Bool(*b)),
-                UntypedRValueKind::Str(s) => Ok(Value::Str(s.clone())),
-                UntypedRValueKind::Char(c) => Ok(Value::Char(*c)),
-                UntypedRValueKind::BinOp { left, op, right } => {
-                    self.binop(&expr.span, left, *op, right)
-                }
                 UntypedRValueKind::FlatBinOp { first, rest } => {
                     self.flat_binop(&expr.span, first, rest)
                 }
@@ -94,9 +95,26 @@ impl TypeChecker {
                 UntypedRValueKind::Negate(e) => self.negate(e.as_ref()),
                 */
             },
-            _ => todo!(),
-            // UntypedExprKind::LValue(l) => self.lval(l, &expr.span),
+            UntypedExprKind::LValue(l) => self.lval(l, &expr.span),
         }
+    }
+
+    fn binop(
+        &mut self,
+        _span: &Span,
+        left: UntypedExpr,
+        _op: BinOpKind,
+        right: UntypedExpr,
+    ) -> TypeCheckerResult {
+        // let errs = Vec::new();
+        match (self.expr(left), self.expr(right)) {
+            (Ok(_l), Ok(_r)) => todo!(),
+            _ => todo!(),
+        }
+    }
+
+    fn lval(&mut self, _expr: UntypedLValueKind, _span: &Span) -> TypeCheckerResult {
+        todo!()
     }
 }
 /*

@@ -1,16 +1,14 @@
 use crate::{
     span::Span,
-    types::{DeclarationKind, TypeSpec as TS},
-    value::Value,
+    types::{DeclarationKind, Type},
+    value::ParserValue,
 };
 use std::{
     fmt::{Display, Formatter},
     rc::Rc,
 };
 
-type TypeSpec = TS<Value>;
-
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Ast<T> {
     pub exprs: Vec<Expr<T>>,
 }
@@ -24,14 +22,14 @@ impl<T> std::fmt::Display for Ast<T> {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct Expr<T> {
     pub span: Span,
     pub value: ExprKind<T>,
     pub typespec: T,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct LValue<T> {
     pub span: Span,
     pub value: LValueKind<T>,
@@ -57,12 +55,12 @@ pub type UntypedLValueKind = LValueKind<()>;
 pub type UntypedRValueKind = RValueKind<()>;
 pub type UntypedAst = Ast<()>;
 
-pub type TypedExprKind = ExprKind<TypeSpec>;
-pub type TypedExpr = Expr<TypeSpec>;
-pub type TypedLValue = LValue<TypeSpec>;
-pub type TypedLValueKind = LValueKind<TypeSpec>;
-pub type TypedRValueKind = RValueKind<TypeSpec>;
-pub type TypedAst = Ast<TypeSpec>;
+pub type TypedExprKind = ExprKind<Type>;
+pub type TypedExpr = Expr<Type>;
+pub type TypedLValue = LValue<Type>;
+pub type TypedLValueKind = LValueKind<Type>;
+pub type TypedRValueKind = RValueKind<Type>;
+pub type TypedAst = Ast<Type>;
 
 #[derive(Debug, Clone)]
 pub enum ExprKind<T> {
@@ -80,24 +78,20 @@ pub enum LValueKind<T> {
     Tuple(Vec<Expr<T>>),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub enum Pattern {
     One(String),
     Many(Vec<Pattern>),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub enum RValueKind<T> {
     Declaration {
         kind: DeclarationKind,
         names: Pattern,
         value: SubExpr<T>,
     },
-    Integer(i64),
-    Float(f64),
-    Str(String),
-    Char(char),
-    Bool(bool),
+    Value(ParserValue),
     Assignment {
         left: LValue<T>,
         right: SubExpr<T>,
@@ -239,11 +233,7 @@ impl Display for ShortCircuitBinOpKind {
 impl<T> Display for RValueKind<T> {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
         match self {
-            Self::Integer(i) => write!(f, "{i}"),
-            Self::Float(fl) => write!(f, "{fl}"),
-            Self::Str(s) => write!(f, "{s:?}"),
-            Self::Char(c) => write!(f, "{c}"),
-            Self::Bool(b) => write!(f, "{b}"),
+            Self::Value(v) => write!(f, "{v}"),
             Self::BinOp { left, op, right } => write!(f, "({left} {op} {right})"),
             Self::Assignment { left, right } => write!(f, "{left} = {right}"),
             Self::ShortCircuitBinOp { left, op, right } => write!(f, "({left} {op} {right})"),

@@ -9,6 +9,7 @@ use crate::{
     span::Span,
     token::{Kind as TokenKind, Token},
     types::DeclarationKind,
+    value::ParserValue,
 };
 use itertools::{put_back, structs::PutBack};
 use std::rc::Rc;
@@ -467,11 +468,22 @@ where
 
     fn literal_id_or_recurse(&mut self, token: Token) -> ParseResult {
         Ok(match token.value {
-            TokenKind::Integer(i) => Self::tag_rval(UntypedRValueKind::Integer(i), token.span),
-            TokenKind::Float(f) => Self::tag_rval(UntypedRValueKind::Float(f), token.span),
-            TokenKind::Str(s) => Self::tag_rval(UntypedRValueKind::Str(s), token.span),
-            TokenKind::Char(c) => Self::tag_rval(UntypedRValueKind::Char(c), token.span),
-            TokenKind::Bool(b) => Self::tag_rval(UntypedRValueKind::Bool(b), token.span),
+            TokenKind::Integer(i) => Self::tag_rval(
+                UntypedRValueKind::Value(ParserValue::Integer(i)),
+                token.span,
+            ),
+            TokenKind::Float(f) => {
+                Self::tag_rval(UntypedRValueKind::Value(ParserValue::Float(f)), token.span)
+            }
+            TokenKind::Str(s) => {
+                Self::tag_rval(UntypedRValueKind::Value(ParserValue::Str(s)), token.span)
+            }
+            TokenKind::Char(c) => {
+                Self::tag_rval(UntypedRValueKind::Value(ParserValue::Char(c)), token.span)
+            }
+            TokenKind::Bool(b) => {
+                Self::tag_rval(UntypedRValueKind::Value(ParserValue::Bool(b)), token.span)
+            }
             TokenKind::Identifier(i) => Self::tag_lval(UntypedLValueKind::Variable(i), token.span),
             TokenKind::LambdaArg(i) if self.in_lambda => {
                 Self::tag_rval(UntypedRValueKind::LambdaArg(i), token.span)
