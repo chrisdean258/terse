@@ -149,7 +149,7 @@ impl Display for Value {
                 write!(f, "]")
             }
             Self::ExternalFunc(c) => write!(f, "{c:?}"),
-            Self::Lambda(l) => write!(f, "{l}"),
+            Self::Lambda(l) => write!(f, "\\({l})"),
             Self::Iterable(_) => write!(f, "[...]"),
         }
     }
