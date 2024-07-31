@@ -9,6 +9,7 @@ mod runner;
 mod span;
 mod token;
 mod typechecker;
+mod typesystem;
 mod types;
 mod scope_table;
 mod value;

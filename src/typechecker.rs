@@ -6,12 +6,14 @@ use crate::{
     },
     scope_table::ScopeTable,
     span::Span,
-    types::Type,
+    types::{Range, Type},
+    typesystem::TypeSystem,
     value::ParserValue,
 };
 
 pub struct TypeChecker {
     scope_table: ScopeTable<()>,
+    type_system: TypeSystem,
 }
 
 pub enum Error {}
@@ -22,6 +24,7 @@ impl TypeChecker {
     pub fn new() -> Self {
         Self {
             scope_table: ScopeTable::new(std::collections::HashMap::new()),
+            type_system: TypeSystem::new(),
         }
     }
 
@@ -48,11 +51,11 @@ impl TypeChecker {
                     span: expr.span,
                     typespec: match &v {
                         ParserValue::None => Type::Null,
-                        ParserValue::Integer(_) => Type::Integer,
-                        ParserValue::Float(_) => Type::Float,
-                        ParserValue::Str(_) => Type::Str,
-                        ParserValue::Bool(_) => Type::Bool,
-                        ParserValue::Char(_) => Type::Char,
+                        ParserValue::Integer(i) => Type::Integer(Range::from_value(*i)),
+                        ParserValue::Float(f) => Type::Float(Range::from_value(*f)),
+                        ParserValue::Str(s) => Type::Str(Some(s.clone())),
+                        ParserValue::Bool(b) => Type::Bool(Range::from_value(*b)),
+                        ParserValue::Char(c) => Type::Char(Range::from_value(*c)),
                     },
                     value: TypedExprKind::RValue(TypedRValueKind::Value(v)),
                 }),
@@ -113,7 +116,8 @@ impl TypeChecker {
         }
     }
 
-    fn lval(&mut self, _expr: UntypedLValueKind, _span: &Span) -> TypeCheckerResult {
+    fn lval(&mut self, expr: UntypedLValueKind, _span: &Span) -> TypeCheckerResult {
+        drop(expr);
         todo!()
     }
 }
