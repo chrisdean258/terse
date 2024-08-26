@@ -1,5 +1,3 @@
-let null = {}
-
 let int = \{
 	var val = 0
 	for c in \0 {

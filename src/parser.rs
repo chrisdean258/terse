@@ -1,5 +1,5 @@
 #![allow(clippy::needless_pass_by_value)]
-// TODO: go clean up the UntypedExpression with a new method and get ris of the useless typespec lines
+// TODO: go clean up the UntypedExpression with a new method and get ris of the useless type_ lines
 use crate::{
     expression::{
         BinOpKind, FlatBinOpKind, Pattern, ShortCircuitBinOpKind, UntypedAst, UntypedExpr,
@@ -80,7 +80,7 @@ macro_rules! binops {
                         op,
                         right: Box::new(right),
                     })
-                    , typespec: (),
+                    , type_: (),
                 };
             }
         }
@@ -120,25 +120,12 @@ macro_rules! binops {
                         first: Box::new(first),
                         rest,
                     })
-                    , typespec: (),
+                    , type_: (),
                 }
             })
         }
         binops!($next $($rest)*);
     }
-}
-
-macro_rules! expect {
-    ($self:ident => $token:ident { $( $tree:tt )* }) => {{
-        let Some($token) = $self.lexer.next() else {
-            todo!()
-        };
-        let $token = $token?;
-        match $token.value {
-            $($tree)*
-                v => todo!("{v}"),
-            }
-    }};
 }
 
 impl<I> Parser<I>
@@ -162,7 +149,7 @@ where
         UntypedExpr {
             span,
             value: UntypedExprKind::RValue(value),
-            typespec: (),
+            type_: (),
         }
     }
 
@@ -170,7 +157,7 @@ where
         UntypedExpr {
             span,
             value: UntypedExprKind::LValue(value),
-            typespec: (),
+            type_: (),
         }
     }
 
@@ -223,7 +210,7 @@ where
                 let rtn = UntypedExpr {
                     span: left.span.to(&right.span),
                     value: UntypedExprKind::RValue(UntypedRValueKind::Assignment { left, right }),
-                    typespec: (),
+                    type_: (),
                 };
                 return Ok(rtn);
             }
@@ -256,10 +243,10 @@ where
                 right: Box::new(UntypedExpr {
                     span,
                     value: UntypedExprKind::RValue(UntypedRValueKind::BinOp { left: r, op, right }),
-                    typespec: (),
+                    type_: (),
                 }),
             }),
-            typespec: (),
+            type_: (),
         };
         Ok(rtn)
     }
@@ -271,7 +258,7 @@ where
         Ok(UntypedExpr {
             span: expr.span.clone(),
             value: UntypedExprKind::RValue(UntypedRValueKind::Lambda(Rc::new(expr))),
-            typespec: (),
+            type_: (),
         })
     }
 
@@ -307,7 +294,7 @@ where
         Ok(UntypedExpr {
             span,
             value: UntypedExprKind::LValue(UntypedLValueKind::Tuple(exprs)),
-            typespec: (),
+            type_: (),
         })
     }
 
@@ -363,7 +350,7 @@ where
                 Ok(UntypedExpr {
                     span: item.span.to(&token.span),
                     value: UntypedExprKind::RValue(UntypedRValueKind::PreIncr(item)),
-                    typespec: (),
+                    type_: (),
                 })
             }
             TokenKind::Decrement => {
@@ -371,7 +358,7 @@ where
                 Ok(UntypedExpr {
                     span: item.span.to(&token.span),
                     value: UntypedExprKind::RValue(UntypedRValueKind::PreDecr(item)),
-                    typespec: (),
+                    type_: (),
                 })
             }
             TokenKind::Minus => {
@@ -379,7 +366,7 @@ where
                 Ok(UntypedExpr {
                     span: token.span.to(&item.span),
                     value: UntypedExprKind::RValue(UntypedRValueKind::Negate(Box::new(item))),
-                    typespec: (),
+                    type_: (),
                 })
             }
             TokenKind::Plus => {
@@ -409,7 +396,7 @@ where
                             callable: Box::new(callable),
                             args,
                         }),
-                        typespec: (),
+                        type_: (),
                     }
                 }
                 TokenKind::OpenBracket => {
@@ -432,7 +419,7 @@ where
                             left: Box::new(callable),
                             subscript,
                         }),
-                        typespec: (),
+                        type_: (),
                     }
                 }
                 TokenKind::Increment => {
@@ -443,7 +430,7 @@ where
                     UntypedExpr {
                         span: item.span.to(&token.span),
                         value: UntypedExprKind::RValue(UntypedRValueKind::PostIncr(item)),
-                        typespec: (),
+                        type_: (),
                     }
                 }
                 TokenKind::Decrement => {
@@ -454,7 +441,7 @@ where
                     UntypedExpr {
                         span: item.span.to(&token.span),
                         value: UntypedExprKind::RValue(UntypedRValueKind::PostDecr(item)),
-                        typespec: (),
+                        type_: (),
                     }
                 }
                 _ => {
@@ -485,6 +472,9 @@ where
                 Self::tag_rval(UntypedRValueKind::Value(ParserValue::Bool(b)), token.span)
             }
             TokenKind::Identifier(i) => Self::tag_lval(UntypedLValueKind::Variable(i), token.span),
+            TokenKind::Null => {
+                Self::tag_rval(UntypedRValueKind::Value(ParserValue::None), token.span)
+            }
             TokenKind::LambdaArg(i) if self.in_lambda => {
                 Self::tag_rval(UntypedRValueKind::LambdaArg(i), token.span)
             }
@@ -502,7 +492,7 @@ where
             TokenKind::Plus => UntypedExpr {
                 span: token.span,
                 value: UntypedExprKind::LValue(UntypedLValueKind::Variable("+".into())),
-                typespec: (),
+                type_: (),
             },
             a => todo!("{}:{a:?}", token.span),
         })
@@ -564,7 +554,7 @@ where
         Ok(UntypedExpr {
             span,
             value: UntypedExprKind::RValue(UntypedRValueKind::Array(items)),
-            typespec: (),
+            type_: (),
         })
     }
 
@@ -579,7 +569,7 @@ where
                 return Ok(UntypedExpr {
                     span: open_brace_token.span.to(&token.span),
                     value: UntypedExprKind::RValue(UntypedRValueKind::Block(exprs)),
-                    typespec: (),
+                    type_: (),
                 });
             }
             exprs.push(self.expr(token)?);
@@ -600,7 +590,7 @@ where
         Ok(UntypedExpr {
             span: for_token.span.to(&body.span),
             value: UntypedExprKind::RValue(UntypedRValueKind::For { item, items, body }),
-            typespec: (),
+            type_: (),
         })
     }
 
@@ -627,7 +617,7 @@ where
                 body,
                 else_,
             }),
-            typespec: (),
+            type_: (),
         })
     }
 
@@ -637,7 +627,7 @@ where
         Ok(UntypedExpr {
             span: while_token.span.to(&body.span),
             value: UntypedExprKind::RValue(UntypedRValueKind::While { condition, body }),
-            typespec: (),
+            type_: (),
         })
     }
 
@@ -664,7 +654,7 @@ where
         Ok(UntypedExpr {
             span: decl_type.span.to(&value.span),
             value: UntypedExprKind::RValue(UntypedRValueKind::Declaration { kind, names, value }),
-            typespec: (),
+            type_: (),
         })
     }
 
@@ -673,23 +663,49 @@ where
         let mut force_tuple = false;
         self.lexer.put_back(Ok(token));
         loop {
-            pattern.push(expect!(self => token {
+            let token = self.must_next_token("identifier or `(`")?;
+            pattern.push(match token.value {
                 TokenKind::Identifier(s) => Pattern::One(s),
                 TokenKind::OpenParen => {
                     let token = self.must_next_token("open paren or identifier")?;
                     self.pattern(token, true)?
                 }
-            }));
-            expect!(self => token {
+                _ => {
+                    return Err(Error::UnexpectedToken {
+                        expected: vec![TokenKind::Identifier("ident".into()), TokenKind::OpenParen],
+                        found: token,
+                    })
+                }
+            });
+            let token = if recursed {
+                self.must_next_token("`)`,  `=`,  or `,`")?
+            } else {
+                self.must_next_token("`=` or `,`")?
+            };
+            match token.value {
                 TokenKind::CloseParen if recursed => break,
                 TokenKind::SingleEquals if !recursed => {
                     self.lexer.put_back(Ok(token));
-                    break
+                    break;
                 }
                 TokenKind::Comma => {
                     force_tuple = true;
                 }
-            });
+                _ => {
+                    return Err(Error::UnexpectedToken {
+                        expected: if recursed {
+                            vec![
+                                TokenKind::CloseParen,
+                                TokenKind::SingleEquals,
+                                TokenKind::Comma,
+                            ]
+                        } else {
+                            vec![TokenKind::SingleEquals, TokenKind::Comma]
+                        },
+                        found: token,
+                    })
+                }
+            };
         }
         if pattern.len() == 1 && !force_tuple {
             pattern.pop().map_or_else(|| unreachable!(), Ok)
@@ -710,7 +726,7 @@ where
         Ok(UntypedExpr {
             span,
             value: UntypedExprKind::RValue(UntypedRValueKind::Break(subexpr)),
-            typespec: (),
+            type_: (),
         })
     }
 
@@ -720,7 +736,7 @@ where
         Ok(UntypedExpr {
             span: token.span,
             value: UntypedExprKind::RValue(UntypedRValueKind::Continue),
-            typespec: (),
+            type_: (),
         })
     }
 }

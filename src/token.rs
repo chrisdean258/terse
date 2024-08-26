@@ -81,6 +81,7 @@ pub enum Kind {
     Var,
     Break,
     Continue,
+    Null,
 }
 
 impl Display for Kind {
@@ -158,6 +159,7 @@ impl Display for Kind {
             Self::Var => write!(f, "var"),
             Self::Break => write!(f, "break"),
             Self::Continue => write!(f, "continue"),
+            Self::Null => write!(f, "null"),
         }
     }
 }

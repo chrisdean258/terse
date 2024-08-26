@@ -26,7 +26,7 @@ impl<T> std::fmt::Display for Ast<T> {
 pub struct Expr<T> {
     pub span: Span,
     pub value: ExprKind<T>,
-    pub typespec: T,
+    pub type_: T,
 }
 
 #[derive(Clone, Debug)]
