@@ -22,7 +22,7 @@ where
     P: AsRef<Path>,
 {
     let chars = read_to_string(filename)?;
-    let lexer = Lexer::new(name, chars.chars().collect());
+    let lexer = Lexer::new(name, &chars);
     let tree = parser::parse(lexer)?;
     Ok(intp.interpret(&tree)?)
 }
@@ -35,7 +35,7 @@ pub fn repl(print_tree: bool) -> Result<(), Box<dyn Error>> {
         let readline = rl.readline(">>> ");
         let Ok(mut line) = readline else { break };
         loop {
-            let l = Lexer::new("<stdin>".to_owned(), line.chars().collect());
+            let l = Lexer::new("<stdin>".to_owned(), &line);
             let t = match parser::parse(l) {
                 Ok(t) => t,
                 Err(parser::Error::UnexpectedEOF(a)) => {

@@ -26,8 +26,12 @@ impl Display for Span {
         let (row, col) = self.meta.row_col(self.from);
         write!(f, "{}:{row},{col}", self.meta.label)?;
         if self.from != self.to {
-            let (row, col) = self.meta.row_col(self.to);
-            write!(f, "-{row},{col}")?;
+            let (row2, col2) = self.meta.row_col(self.to);
+            if row == row2 {
+                write!(f, "-{col2}")?;
+            } else {
+                write!(f, "-{row2},{col2}")?;
+            }
         }
         Ok(())
     }

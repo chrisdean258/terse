@@ -2,7 +2,6 @@ use crate::{
     span::{ControlBlock, Span},
     token::{Kind as TokenKind, Token},
 };
-use std::mem::replace;
 use std::{cell::RefCell, rc::Rc};
 use thiserror::Error;
 
@@ -19,13 +18,13 @@ pub enum LexError {
 }
 
 #[derive(Debug)]
-pub struct Lexer {
-    characters: Vec<char>,
+pub struct Lexer<'de> {
+    code: &'de str,
     cursor: usize,
     meta: Rc<ControlBlock>,
 }
 
-impl Iterator for Lexer {
+impl<'de> Iterator for Lexer<'de> {
     type Item = Result<Token, LexError>;
     #[allow(clippy::too_many_lines)]
     fn next(&mut self) -> Option<Self::Item> {
@@ -188,27 +187,24 @@ fn escape(string: &str) -> String {
     output
 }
 
-impl Lexer {
-    pub fn new(label: String, characters: Vec<char>) -> Self {
+impl<'de> Lexer<'de> {
+    pub fn new(label: String, characters: &'de str) -> Self {
         let meta = Rc::new(ControlBlock {
             label,
             newlines: RefCell::new(Vec::new()),
         });
         Self {
-            characters,
+            code: characters,
             cursor: 0,
             meta,
         }
     }
 
     fn next_char(&mut self) -> Option<char> {
-        if self.cursor < self.characters.len() {
-            let next = self.cursor + 1;
-            let cursor = replace(&mut self.cursor, next);
-            Some(self.characters[cursor])
-        } else {
-            None
-        }
+        let mut chars = self.code[self.cursor..].chars();
+        let rv = chars.next()?;
+        self.cursor += rv.len_utf8();
+        Some(rv)
     }
 
     fn must_next_char<C>(&mut self, start: usize, error: C) -> Result<char, LexError>
@@ -223,11 +219,12 @@ impl Lexer {
     where
         C: FnMut(char) -> bool,
     {
-        let lc = self.next_char()?;
+        let mut chars = self.code[self.cursor..].chars();
+        let lc = chars.next()?;
         if cond(lc) {
+            self.cursor += lc.len_utf8();
             Some(lc)
         } else {
-            self.cursor -= 1;
             None
         }
     }
@@ -366,7 +363,7 @@ mod tests {
     #[test]
     fn sequence() {
         let test = "\"this is as\" 1 \"ssfsd\"\"lsdkfjsd\" 1 12 12.12 12. 1 true false";
-        let mut l = Lexer::new("test".to_owned(), test.chars().collect());
+        let mut l = Lexer::new("test".to_owned(), test);
 
         test_lex!(l => TokenKind::Str(_));
         test_lex!(l => TokenKind::Integer(1));
@@ -424,7 +421,7 @@ mod tests {
         let ops: Vec<String> = operators.iter().map(ToString::to_string).collect();
         let ops = ops.join(" ");
 
-        let l = Lexer::new("operators".to_owned(), ops.chars().collect());
+        let l = Lexer::new("operators".to_owned(), &ops);
 
         for (kind, res_token) in operators.iter().zip(l) {
             assert_eq!(res_token.unwrap().value, *kind);
@@ -434,7 +431,7 @@ mod tests {
     #[test]
     fn string() {
         let test = "\"test\\n\"";
-        let mut l = Lexer::new("test".to_owned(), test.chars().collect());
+        let mut l = Lexer::new("test".to_owned(), test);
 
         let TokenKind::Str(s) = l.next().unwrap().unwrap().value else {
             panic!("Lexer did not yield String token");
@@ -446,14 +443,14 @@ mod tests {
     #[test]
     fn float() {
         let test = "1.2";
-        let mut l = Lexer::new("test".to_owned(), test.chars().collect());
+        let mut l = Lexer::new("test".to_owned(), test);
 
         let TokenKind::Float(s) = l.next().unwrap().unwrap().value else {
             panic!("Lexer did not yield Float token");
         };
 
         let delta = 0.000_000_000_1;
-        assert!(s <= 1.2 - delta && s >= 1.2 + delta);
+        assert!(s >= 1.2 - delta && s <= 1.2 + delta);
     }
 
     #[test]
@@ -467,7 +464,7 @@ mod tests {
     #[test]
     fn locations() {
         let test = "\"this is as\" 1 \n\"ssfsd\"\n\"lsdkfjsd\" 1 12 12.12 12. 1";
-        let mut l = Lexer::new("test".to_owned(), test.chars().collect());
+        let mut l = Lexer::new("test".to_owned(), test);
 
         macro_rules! span {
             ($lexer:expr) => {
@@ -475,14 +472,14 @@ mod tests {
             };
         }
 
-        assert_eq!(span!(l).to_string(), "test:1,1-1,12");
+        assert_eq!(span!(l).to_string(), "test:1,1-12");
         assert_eq!(span!(l).to_string(), "test:1,14");
-        assert_eq!(span!(l).to_string(), "test:2,1-2,7");
-        assert_eq!(span!(l).to_string(), "test:3,1-3,10");
+        assert_eq!(span!(l).to_string(), "test:2,1-7");
+        assert_eq!(span!(l).to_string(), "test:3,1-10");
         assert_eq!(span!(l).to_string(), "test:3,12");
-        assert_eq!(span!(l).to_string(), "test:3,14-3,15");
-        assert_eq!(span!(l).to_string(), "test:3,17-3,21");
-        assert_eq!(span!(l).to_string(), "test:3,23-3,24");
+        assert_eq!(span!(l).to_string(), "test:3,14-15");
+        assert_eq!(span!(l).to_string(), "test:3,17-21");
+        assert_eq!(span!(l).to_string(), "test:3,23-24");
         assert_eq!(span!(l).to_string(), "test:3,25");
         assert_eq!(span!(l).to_string(), "test:3,27");
         assert!(l.next().is_none());
@@ -491,7 +488,7 @@ mod tests {
     #[test]
     fn correct_put_back() {
         let test = "(1,2)+(3,4)";
-        let mut l = Lexer::new("test".to_owned(), test.chars().collect());
+        let mut l = Lexer::new("test".to_owned(), test);
 
         test_lex!(l => TokenKind::OpenParen);
         test_lex!(l => TokenKind::Integer(1));
@@ -510,7 +507,7 @@ mod tests {
     #[test]
     fn cpb() {
         let test = "(test,";
-        let mut l = Lexer::new("test".to_owned(), test.chars().collect());
+        let mut l = Lexer::new("test".to_owned(), test);
 
         test_lex!(l => TokenKind::OpenParen);
         test_lex!(l => TokenKind::Identifier(_));
